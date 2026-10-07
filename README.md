@@ -1,70 +1,42 @@
-# Getting Started with Create React App
+# Argus Panoptes (Eyes That See It All) 👁️
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+> **Decentralized, geotagged citizen auditing platform for public services & infrastructure.**
 
-## Available Scripts
+---
 
-In the project directory, you can run:
+## 🏛️ Mission & Core Sectors
 
-### `npm start`
+Argus Panoptes enables citizens to perform structured, tamper-resistant audits of public infrastructure and welfare delivery points to build a transparent, open civic ledger:
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+1. **🏥 Local Health Centers & Anganwadis**: Medicine stock transparency, child nutrition kits, immunization records, sanitation, and staff attendance.
+2. **🌾 Public Distribution System (PDS / Ration Shops)**: Grain quota stock display, electronic weigh scale calibration seals, and biometric POS uptime.
+3. **🛣️ Local Roads & Street Lights**: Pothole severity, pedestrian footpaths, unlit night zones, and drainage cover integrity.
+4. **🚌 Public Transport & Bus Stops**: Weather-protected shelter conditions, timetable legibility, night safety lighting, and accessibility.
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+---
 
-### `npm test`
+## 📐 Design Philosophy: Clean, Utility-First & Zero "AI Slop"
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+To keep the application high-utility, intuitive, and professional (inspired by Notion and GovTech open standards), the following rules are enforced:
 
-### `npm run build`
+### 🚫 Excluded "AI Slop" Patterns
+- **No decorative glowing gradient orbs** or rainbow blur backgrounds.
+- **No hollow marketing buzzwords** (*"AI-powered hyper-synergistic future"*).
+- **No decorative floating 3D meaningless bubbles** or distracting jiggling animations.
+- **No low-contrast or illegible typography**.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### ✅ Included Notion-Style Design Principles
+- **Neutral, warm, high-contrast palette**: Clean off-whites (`#FFFFFF`, `#FAFAF9`), subtle border separators (`#EAEAE8`, `#DFDFDE`), and dark slate typography (`#2F3437`, `#37352F`).
+- **Functional callouts and badges**: Clear informational blocks with muted tint backgrounds (Amber, Green, Blue, Red).
+- **High-density, structured data views**: Direct checklists, live GPS coordinates, audit IDs (`AUD-XXXX`), and status chips (`Verified`, `Under Review`, `Flagged Critical`, `Action Taken`).
+- **Interactive audit workflow**: Live simulated hardware GPS locking, pass/fail checkpoint toggle, and open ledger inspection drawer.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+---
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## 🚀 Running the App
 
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
-
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+### Start with Expo
+```bash
+npx expo start -c
+```
+- Scan the QR code with **Expo Go** on Android/iOS, or press `w` to open in your web browser.
