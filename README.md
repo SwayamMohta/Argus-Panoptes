@@ -1,21 +1,21 @@
-# Argus Panoptes (Eyes That See It All) 👁️
+# Argus Panoptes (Eyes That See It All)
 
 > **Decentralized, geotagged citizen auditing platform for public services & infrastructure.**
 
 ---
 
-## 🏛️ Mission & Core Sectors
+## Mission & Core Sectors
 
 Argus Panoptes enables citizens to perform structured, tamper-resistant audits of public infrastructure and welfare delivery points to build a transparent, open civic ledger:
 
-1. **🏥 Local Health Centers & Anganwadis**: Medicine stock transparency, child nutrition kits, immunization records, sanitation, and staff attendance.
-2. **🌾 Public Distribution System (PDS / Ration Shops)**: Grain quota stock display, electronic weigh scale calibration seals, and biometric POS uptime.
-3. **🛣️ Local Roads & Street Lights**: Pothole severity, pedestrian footpaths, unlit night zones, and drainage cover integrity.
-4. **🚌 Public Transport & Bus Stops**: Weather-protected shelter conditions, timetable legibility, night safety lighting, and accessibility.
+1. **Local Health Centers & Anganwadis**: Medicine stock transparency, child nutrition kits, immunization records, sanitation, and staff attendance.
+2. **Public Distribution System (PDS / Ration Shops)**: Grain quota stock display, electronic weigh scale calibration seals, and biometric POS uptime.
+3. **Local Roads & Street Lights**: Pothole severity, pedestrian footpaths, unlit night zones, and drainage cover integrity.
+4. **Public Transport & Bus Stops**: Weather-protected shelter conditions, timetable legibility, night safety lighting, and accessibility.
 
 ---
 
-## 🛠️ Getting Started & Setup Guide
+## Getting Started & Setup Guide
 
 Follow these instructions to clone, set up, and run the project on your local machine.
 
@@ -81,15 +81,15 @@ npx expo start -c
 - **Android**: Open the **Expo Go** app and scan the QR code displayed in your terminal.
 - **iOS**: Open the native **Camera** app, scan the QR code, and tap the notification to launch Expo Go.
 - **Keyboard Shortcuts in Terminal**:
-  - Press `w` → Open in Web browser
-  - Press `a` → Open in Android Emulator
-  - Press `i` → Open in iOS Simulator
-  - Press `r` → Reload app
-  - Press `c` → Clear bundler cache
+  - Press `w` -> Open in Web browser
+  - Press `a` -> Open in Android Emulator
+  - Press `i` -> Open in iOS Simulator
+  - Press `r` -> Reload app
+  - Press `c` -> Clear bundler cache
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```text
 argus_panoptes/
@@ -116,17 +116,17 @@ argus_panoptes/
 
 ---
 
-## 📐 Design Philosophy: Clean, Utility-First & Zero "AI Slop"
+## Design Philosophy: Clean, Utility-First & Zero "AI Slop"
 
 To keep the application high-utility, intuitive, and professional (inspired by Notion and GovTech open standards), the following rules are enforced:
 
-### 🚫 Excluded "AI Slop" Patterns
+### Excluded Patterns
 - **No decorative glowing gradient orbs** or rainbow blur backgrounds.
 - **No hollow marketing buzzwords** (*"AI-powered hyper-synergistic future"*).
 - **No decorative floating 3D meaningless bubbles** or distracting jiggling animations.
 - **No low-contrast or illegible typography**.
 
-### ✅ Notion-Style Design Principles
+### Notion-Style Design Principles
 - **Neutral, warm, high-contrast palette**: Clean off-whites (`#FFFFFF`, `#FAFAF9`), subtle border separators (`#EAEAE8`, `#DFDFDE`), and dark slate typography (`#2F3437`, `#37352F`).
 - **Functional callouts and badges**: Clear informational blocks with muted tint backgrounds (Amber, Green, Blue, Red).
 - **High-density, structured data views**: Direct checklists, live GPS coordinates, audit IDs (`AUD-XXXX`), and status chips (`Verified`, `Under Review`, `Flagged Critical`, `Action Taken`).
@@ -134,7 +134,7 @@ To keep the application high-utility, intuitive, and professional (inspired by N
 
 ---
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
 - **Metro bundler cache issues**:
   ```bash
@@ -152,7 +152,7 @@ To keep the application high-utility, intuitive, and professional (inspired by N
 
 ---
 
-## 🤝 Contributing Workflow
+## Contributing Workflow
 
 1. Create a feature branch: `git checkout -b feature/my-new-feature`
 2. Make your edits and test locally using `npm run web` or `npx expo start`
