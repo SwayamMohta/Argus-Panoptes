@@ -1,33 +1,76 @@
 # Dependencies
 node_modules/
-/.pnp
+frontend/node_modules/
+backend/node_modules/
+.pnp
 .pnp.js
 
-# Expo
-.expo/
-.expo-shared/
-web-build/
+# Python / Backend Environments (FastAPI / Flask / Django)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
 dist/
+build/
+*.egg
+
+# Expo / React Native
+.expo/
+frontend/.expo/
+.expo-shared/
+frontend/.expo-shared/
+web-build/
+frontend/web-build/
+frontend/dist/
 
 # Native builds (Expo Prebuild / Bare React Native)
-# Uncomment if using Expo managed workflow with prebuild
 # /android
 # /ios
+# frontend/android
+# frontend/ios
 
 # Production / Build artifacts
 /build
 /out
+frontend/build/
+frontend/out/
+backend/dist/
+backend/build/
 
 # Testing & Coverage
 /coverage
+frontend/coverage/
+backend/coverage/
 *.lcov
 
 # Environment variables & secrets
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+*.env
+!.env.example
+frontend/.env
+frontend/.env.*
+backend/.env
+backend/.env.*
+
+# Local Databases & Storage
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+backend/*.sqlite3
+backend/*.db
 
 # Keystores & Certificates
 *.jks

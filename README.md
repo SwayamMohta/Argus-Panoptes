@@ -6,7 +6,7 @@
 
 ## Mission & Core Sectors
 
-Argus Panoptes enables citizens to perform structured, tamper-resistant audits of public infrastructure and welfare delivery points to build a transparent, open civic ledger:
+Argus Panoptes enables citizens to discover, document, report, and verify public infrastructure problems across essential civic sectors:
 
 1. **Local Health Centers & Anganwadis**: Medicine stock transparency, child nutrition kits, immunization records, sanitation, and staff attendance.
 2. **Public Distribution System (PDS / Ration Shops)**: Grain quota stock display, electronic weigh scale calibration seals, and biometric POS uptime.
@@ -52,9 +52,11 @@ cd Argus-Panoptes
 
 ### 3. Install Dependencies
 
-Install all required packages using `npm`:
+Install all required packages:
 
 ```bash
+# Navigate to frontend folder
+cd frontend
 npm install
 ```
 
@@ -64,20 +66,19 @@ npm install
 
 You can run Argus Panoptes on the web or directly on your mobile device via Expo.
 
-#### Option A: Run in Web Browser (Fastest)
+#### Running from root directory:
 ```bash
-npm run web
-# or
-npx expo start --web
+npm run web      # Run web
+npm start        # Run Expo bundler
 ```
-This will start the local bundler and automatically launch the app at `http://localhost:8081` (or next available port).
 
-#### Option B: Run on Mobile (iOS / Android with Expo Go)
+#### Or directly inside `frontend/`:
 ```bash
-npm start
-# or with cache cleared
-npx expo start -c
+cd frontend
+npx expo start --web   # Run in Web browser
+npx expo start         # Run on Mobile (iOS / Android with Expo Go)
 ```
+
 - **Android**: Open the **Expo Go** app and scan the QR code displayed in your terminal.
 - **iOS**: Open the native **Camera** app, scan the QR code, and tap the notification to launch Expo Go.
 - **Keyboard Shortcuts in Terminal**:
@@ -93,25 +94,25 @@ npx expo start -c
 
 ```text
 argus_panoptes/
-├── App.js                   # Root entry component & global navigation wrapper
-├── app.json                 # Expo project configuration
-├── package.json             # Project dependencies & scripts
-├── public/                  # Static web assets & icons
-└── src/
-    ├── components/          # Reusable UI modules
-    │   ├── modals/          # Auth, Media capture & verification modals
-    │   ├── navigation/      # Curved bottom tab bar & headers
-    │   └── profile/         # Civic badge & profile banner components
-    ├── constants/           # Color palettes, mock datasets & navigation presets
-    ├── context/             # Global state (AuthContext, Ledger state)
-    └── screens/             # Main application views:
-        ├── HomeScreen.js         # Sector selection & quick audits
-        ├── SectorsScreen.js      # Detailed sector checklists & metrics
-        ├── GeoMapScreen.js       # Interactive Map & Area Dashboard
-        ├── LedgerScreen.js       # Public audit trail & verification feed
-        ├── ProfileScreen.js      # Citizen profile, rank & badges
-        ├── EditProfileScreen.js  # User profile edit settings
-        └── SettingsScreen.js     # App preferences & diagnostics
+├── package.json             # Root orchestrator scripts
+├── AGENTS.md                # Engineering rules & UI guidelines
+├── CONTEXT.md               # System architectural documentation
+└── frontend/                # React Native / Expo application
+    ├── App.js               # Root entry component & global navigation wrapper
+    ├── app.json             # Expo project configuration
+    ├── package.json         # Frontend dependencies & scripts
+    ├── public/              # Static web assets & icons
+    └── src/
+        ├── components/      # Reusable UI modules (modals, navigation, profile, home)
+        ├── constants/       # Color palettes, mock datasets & navigation presets
+        ├── context/         # Global state (AuthContext, IssuesContext)
+        └── screens/         # Main application views:
+            ├── HomeScreen.js         # Camera-first civic intelligence dashboard
+            ├── CategoriesScreen.js   # Detailed category feeds & community reports
+            ├── GeoMapScreen.js       # Interactive Map & Area Dashboard
+            ├── ProfileScreen.js      # Citizen profile & civic records
+            ├── EditProfileScreen.js  # User profile edit settings
+            └── SettingsScreen.js     # App preferences & diagnostics
 ```
 
 ---
@@ -129,8 +130,8 @@ To keep the application high-utility, intuitive, and professional (inspired by N
 ### Notion-Style Design Principles
 - **Neutral, warm, high-contrast palette**: Clean off-whites (`#FFFFFF`, `#FAFAF9`), subtle border separators (`#EAEAE8`, `#DFDFDE`), and dark slate typography (`#2F3437`, `#37352F`).
 - **Functional callouts and badges**: Clear informational blocks with muted tint backgrounds (Amber, Green, Blue, Red).
-- **High-density, structured data views**: Direct checklists, live GPS coordinates, audit IDs (`AUD-XXXX`), and status chips (`Verified`, `Under Review`, `Flagged Critical`, `Action Taken`).
-- **Interactive audit workflow**: Live simulated hardware GPS locking, pass/fail checkpoint toggle, and open ledger inspection drawer.
+- **High-density, structured data views**: Direct checklists, live GPS coordinates, report IDs, and status chips (`Reported`, `Under Review`, `In Progress`, `Resolved`).
+- **Interactive civic workflow**: Ground confirmation, visual evidence capture, and community support.
 
 ---
 

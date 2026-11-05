@@ -1,0 +1,77 @@
+export const LOCALITIES = [
+  {
+    id: 'banjara_hills',
+    name: 'Banjara Hills',
+    ward: 'Ward 98',
+    zone: 'Khairatabad Zone',
+    circle: 'Circle 10',
+    landmarks: ['Road No. 1', 'Road No. 12', 'Taj Krishna Junction', 'Care Hospital'],
+  },
+  {
+    id: 'jubilee_hills',
+    name: 'Jubilee Hills',
+    ward: 'Ward 100',
+    zone: 'Khairatabad Zone',
+    circle: 'Circle 10',
+    landmarks: ['Road No. 36', 'Road No. 45', 'Check Post', 'Peddamma Temple'],
+  },
+  {
+    id: 'madhapur',
+    name: 'Madhapur',
+    ward: 'Ward 107',
+    zone: 'Serilingampally Zone',
+    circle: 'Circle 20',
+    landmarks: ['Hitec City Main Rd', '100ft Road Corridor', 'Inorbit Mall', 'Cyber Towers'],
+  },
+  {
+    id: 'gachibowli',
+    name: 'Gachibowli',
+    ward: 'Ward 105',
+    zone: 'Serilingampally Zone',
+    circle: 'Circle 20',
+    landmarks: ['Telecom Nagar', 'ORR Junction', 'Stadium Road', 'Financial District'],
+  },
+  {
+    id: 'kondapur',
+    name: 'Kondapur',
+    ward: 'Ward 104',
+    zone: 'Serilingampally Zone',
+    circle: 'Circle 20',
+    landmarks: ['Botanical Garden Road', 'RTA Office', 'Kothaguda Junction'],
+  },
+  {
+    id: 'begumpet',
+    name: 'Begumpet',
+    ward: 'Ward 149',
+    zone: 'Secunderabad Zone',
+    circle: 'Circle 30',
+    landmarks: ['Prakash Nagar Corner', 'Airport Road', 'Rasoolpura', 'Flyover'],
+  },
+  {
+    id: 'somajiguda',
+    name: 'Somajiguda',
+    ward: 'Ward 91',
+    zone: 'Khairatabad Zone',
+    circle: 'Circle 9',
+    landmarks: ['Raj Bhavan Road', 'NIMS Hospital Junction', 'Katariya Hotel'],
+  },
+  {
+    id: 'secunderabad',
+    name: 'Secunderabad',
+    ward: 'Ward 147',
+    zone: 'Secunderabad Zone',
+    circle: 'Circle 30',
+    landmarks: ['Station Bus Terminal', 'Clock Tower', 'RP Road', 'Patny Circle'],
+  },
+  {
+    id: 'bahadurpally',
+    name: 'Bahadurpally',
+    ward: 'Ward 129',
+    zone: 'Kukatpally Zone',
+    circle: 'Circle 24',
+    landmarks: ['Mahindra University', 'Jeedimetla Road', 'Tech Mahindra SEZ', 'Gandi Maisamma'],
+  },
+];
+
+export const DEFAULT_LOCALITY = LOCALITIES[0]; // Banjara Hills · Ward 98
+
