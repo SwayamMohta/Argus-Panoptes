@@ -107,3 +107,10 @@ lerna-debug.log*
 .Trashes
 ehthumbs.db
 Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Temporary & Tooling Caches
+*.tmp
+*.temp
+.antigravity/

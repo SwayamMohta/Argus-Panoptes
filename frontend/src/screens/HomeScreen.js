@@ -28,8 +28,8 @@ import { LocalityPickerModal } from '../components/home/LocalityPickerModal';
 import { PersonalCivicActivityModal } from '../components/home/PersonalCivicActivityModal';
 import { NoticesNotificationModal } from '../components/home/NoticesNotificationModal';
 import { WardAtAGlance } from '../components/home/WardAtAGlance';
-import { WardNeedsAttention } from '../components/home/WardNeedsAttention';
 import { WardRecentlyResolved } from '../components/home/WardRecentlyResolved';
+import { QuickActionDock } from '../components/home/QuickActionDock';
 import { IssueDetailScreen } from './IssueDetailScreen';
 import { CreateIssueScreen } from './CreateIssueScreen';
 import { CategoryFeedScreen } from './CategoryFeedScreen';
@@ -332,17 +332,6 @@ export const HomeScreen = ({ onNavigateTab }) => {
       return false;
     });
   }, [issues, selectedLocality]);
-
-  const handleViewAllNeedsAttention = () => {
-    if (onNavigateTab) {
-      onNavigateTab('categories');
-    } else {
-      const topIssue = wardIssues.find((i) => i.status !== 'resolved');
-      const catId = topIssue?.categoryId || 'roads';
-      const cat = CATEGORIES_DATA.find((c) => c.id === catId) || CATEGORIES_DATA[0];
-      setSelectedCategoryForFeed(cat);
-    }
-  };
 
   // ---------------------------------------------------------------------------
   // View Issue Details (In-Place Subnavigation)
@@ -736,21 +725,25 @@ export const HomeScreen = ({ onNavigateTab }) => {
           )}
         </View>
 
+        {/* Civic Quick Action Shortcuts Dock (Hidden when viewfinder is expanded) */}
+        {!isExpanded && (
+          <QuickActionDock
+            onPickGallery={pickFromGallery}
+            onOpenNotices={() => setShowNoticesModal(true)}
+            onOpenActivity={() => setShowPersonalActivity(true)}
+            unreadNoticesCount={activeNoticesCount}
+            activityCount={userConfirmedCount}
+          />
+        )}
+
         {/* A. Ward at a Glance */}
         <WardAtAGlance
           locality={selectedLocality}
           issues={wardIssues}
+          onNavigateToMap={() => onNavigateTab && onNavigateTab('map')}
         />
 
-        {/* B. Needs Attention */}
-        <WardNeedsAttention
-          locality={selectedLocality}
-          issues={wardIssues}
-          onSelectIssue={(iss) => setSelectedIssue(iss)}
-          onViewAll={handleViewAllNeedsAttention}
-        />
-
-        {/* C. Recently Resolved */}
+        {/* B. Recently Resolved */}
         <WardRecentlyResolved
           locality={selectedLocality}
           issues={wardIssues}
