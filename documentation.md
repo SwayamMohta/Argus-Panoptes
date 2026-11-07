@@ -85,7 +85,8 @@ argus_panoptes/
         │   │   ├── NearbyIssuesSection.js    # Section of nearby issues
         │   │   ├── NoticesNotificationModal.js # Municipal notices & circulars modal
         │   │   ├── PersonalCivicActivityModal.js # Personal civic footprint (4 filter tabs)
-        │   │   ├── WardAtAGlance.js          # 4-metric ward summary
+        │   │   ├── QuickActionDock.js        # Circular shortcut action dock (Gallery, Notices, Activity)
+        │   │   ├── WardAtAGlance.js          # Cartographic mini-map widget with dynamic OSM tiles & telemetry
         │   │   ├── WardNeedsAttention.js     # Unresolved prioritized issues
         │   │   └── WardRecentlyResolved.js   # Resolved issues with before/after photos
         │   ├── modals/
@@ -155,13 +156,15 @@ Navigation is managed via `CurvedBottomBar.js` with 4 primary tabs:
   - Controls: Camera sensor flip (front/back), Torch toggle, Zoom toggle (1x / 2x / 0.25 steps), gallery fallback picker, pinch-to-zoom pan responder.
   - Post-Capture Workflow: Displays full-frame evidence photo with green GPS fix pill. Citizen taps "Report Civic Issue" to launch `CreateIssueScreen.js` with preloaded photo and location, or "Retake Photo".
 - **Contextual Municipal Advisories**: Renders active notices matching the active ward from `src/constants/municipalNotices.js`.
+- **Civic Quick Action Dock (`QuickActionDock.js`)**:
+  - Mounted directly below the camera viewfinder and above the ward map widget.
+  - Features three neutral circular shortcut buttons (`52px` diameter, `#FFFFFF` surface, `#E2E8F0` border):
+    1. **Gallery** (`Ionicons name="images-outline"`): Quick photo/document evidence picker that bypasses live camera capture and opens the device gallery directly (`ImagePicker.launchImageLibraryAsync`).
+    2. **Notices** (`Ionicons name="megaphone-outline"`): Direct trigger for `NoticesNotificationModal` with unread notification badge dot indicator.
+    3. **My Activity** (`Ionicons name="time-outline"`): Direct trigger for `PersonalCivicActivityModal` with citizen-confirmed count pill.
+  - Automatically hidden when the camera expands to full viewfinder mode (`580px`) to prevent visual obstruction.
 - **Ward Intelligence Dashboard**:
-  - `WardAtAGlance`: Computes 4 KPIs:
-    1. Active Issues (`status !== 'resolved'`).
-    2. Urgent Hazards (`priority === 'hazard'` or keywords: `hazard`, `danger`, `crater`, `emergency`, `collapse`, `live`, `exposed`, `sagging`).
-    3. Awaiting Verification (`status === 'reported'` or `confirmationsCount < 10`).
-    4. Resolved This Week (`status === 'resolved'`).
-  - `WardNeedsAttention`: Top 3 unresolved defects, prioritizing urgent hazards first, followed by oldest report creation date (`createdAt ASC`).
+  - `WardAtAGlance`: Interactive cartographic mini-map widget rendering dynamic OpenStreetMap slippy tiles centered on current ward coordinates using Web Mercator math (`lon2tile`, `lat2tile`, `DynamicOsmTile`) with multiple fallback tile servers. Features an animated radar pulse center marker, nearby monitored pin indicators, live coordinate telemetry HUD, and a dark neutral `Open Map →` action button routing directly to `GeoMapScreen.js`.
   - `WardRecentlyResolved`: Resolved defects with interactive Before/After photo comparison toggle.
 - **Personal Civic Activity Modal**: Shows 4 filter tabs:
   - `Submitted`: Issues authored by citizen.
