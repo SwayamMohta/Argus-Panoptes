@@ -69,7 +69,7 @@ frontend/                Expo + React Native app
   src/components/        UI components
 docs/engineering/        Catalogs, ADRs, deployment runbook, release checklist, data quality
 ghmc_wards.kml           Sole ward dataset (155 GHMC wards)
-docker-compose.yml       Local PostGIS (host port 5433)
+docker-compose.yml       Local PostGIS for pytest only (host port 5433)
 .github/workflows/ci.yml Backend CI + gitleaks
 ```
 
@@ -83,29 +83,58 @@ docker-compose.yml       Local PostGIS (host port 5433)
 
 ### Prerequisites
 
-- Docker Desktop (PostGIS).
 - Python **3.13** (`py -3.13` on Windows).
 - Node **22.13+/24.3+/26+** and npm.
 - Expo Go on a physical Android device.
-- A Supabase project (for Auth and Storage).
+- A Supabase project (Auth, Storage, and **Postgres/PostGIS**).
+- Docker Desktop is **optional** and only needed for the pytest database; the
+  running backend uses Supabase.
 
 ### 4.1 Backend
 
 ```bash
-# Repository root
-docker compose up -d db          # PostGIS on host port 5433
-
 cd backend
 py -3.13 -m venv .venv
 ./.venv/Scripts/pip install -e ".[dev]"       # Windows
 # source .venv/bin/activate && pip install -e ".[dev]"   # macOS/Linux
 
-cp .env.example .env             # then fill SUPABASE_URL / SUPABASE_ANON_KEY
-./.venv/Scripts/alembic.exe upgrade head
-./.venv/Scripts/python.exe -m scripts.seed_reference
-./.venv/Scripts/python.exe -m scripts.import_ghmc_wards
-./.venv/Scripts/python.exe -m scripts.seed_demo_data
+cp .env.example .env
+```
 
+Fill `backend/.env`:
+
+```bash
+# Runtime DB: Supabase Session/Direct connection (port 5432).
+# Copy the exact URI from Supabase Dashboard -> Project Settings -> Database.
+DATABASE_URL=postgresql+psycopg://postgres:<password>@<host>:5432/postgres
+
+# One-time seed/import URL (same direct/session URI).
+SUPABASE_DATABASE_URL=postgresql+psycopg://postgres:<password>@<host>:5432/postgres
+
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_ANON_KEY=<public anon/publishable key>
+```
+
+The schema is already applied to the current Supabase project. For a **fresh**
+project, apply it first:
+
+```bash
+cd backend
+DATABASE_URL="postgresql+psycopg://postgres:<password>@<host>:5432/postgres" \
+  ./.venv/Scripts/alembic.exe upgrade head
+```
+
+Sync the data (155 wards + reference data + 9 demo reports):
+
+```bash
+cd backend
+SUPABASE_DATABASE_URL="postgresql+psycopg://postgres:<password>@<host>:5432/postgres" \
+  ./.venv/Scripts/python.exe -m scripts.sync_supabase
+```
+
+Start the API:
+
+```bash
 # Bind to all interfaces so Expo Go on the phone can reach it
 ./.venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
@@ -113,15 +142,8 @@ cp .env.example .env             # then fill SUPABASE_URL / SUPABASE_ANON_KEY
 Health check: `http://localhost:8000/health` → 200. The same URL on the PC LAN IP
 reaches it from the device.
 
-The local `backend/.env` needs at least:
-
-```bash
-DATABASE_URL=postgresql+psycopg://argus:argus@localhost:5433/argus
-SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_ANON_KEY=<public anon/publishable key>
-```
-
-Do **not** put the service-role key in the app.
+**Local PostGIS is not required for the backend.** `docker compose up -d db` is
+only for `pytest`/offline development (`TEST_DATABASE_URL`).
 
 ### 4.2 Frontend
 
@@ -156,10 +178,14 @@ firewall. The phone must use the PC LAN IP, never `localhost`.
 - Current build uses **email + password**; set **Confirm email OFF** so signup
   returns a session immediately.
 - Create buckets `evidence` (private) and `avatars` (public), 1 MiB, JPEG/PNG/WebP.
-- Apply migrations and verify RLS:
+- The current Supabase project already has the schema and reference data. For a
+  fresh project, apply migrations and seed:
   ```bash
   cd backend
-  ./.venv/Scripts/alembic.exe upgrade head
+  DATABASE_URL="postgresql+psycopg://postgres:<password>@<host>:5432/postgres" \
+    ./.venv/Scripts/alembic.exe upgrade head
+  SUPABASE_DATABASE_URL="postgresql+psycopg://postgres:<password>@<host>:5432/postgres" \
+    ./.venv/Scripts/python.exe -m scripts.sync_supabase
   ./.venv/Scripts/python.exe -m scripts.check_rls
   ```
 - SMTP is optional for now; it is needed for password reset/email verification.
@@ -230,6 +256,9 @@ they are never exposed in public payloads.
 ## 9. Testing
 
 ```bash
+# pytest uses the local PostGIS test database; Docker is optional for runtime
+docker compose up -d db
+
 cd backend
 ./.venv/Scripts/python.exe -m pytest -q          # 112 passed
 ./.venv/Scripts/ruff.exe check .
@@ -260,8 +289,8 @@ Summary:
 3. Set env vars: `DATABASE_URL` (Supavisor **6543**), `SUPABASE_URL`,
    `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` (server-only), buckets,
    `SUPABASE_JWT_AUD`, `CORS_ORIGINS`, geocoder/tile user agents.
-4. Run migrations separately against a **direct/session** connection (5432);
-   never during build or cold start.
+4. Apply migrations and `scripts/sync_supabase.py` against a **direct/session**
+   connection (5432); never during build or cold start.
 5. Deploy a preview, run the release checklist, promote to production.
 6. For the Android release, set `EXPO_PUBLIC_API_URL=https://<vercel-domain>`
    and build with EAS.

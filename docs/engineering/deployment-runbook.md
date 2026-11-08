@@ -64,9 +64,14 @@ Policies: authenticated insert only into `auth.uid()/…`; authenticated select 
   ```
 - Do not seed assets; the Hyderabad asset dataset is not verified.
 
-## 4. Migrations
+## 4. Migrations and data sync
 
-Run from a trusted machine or CI, not from the Vercel build:
+**Current project status (2026-11-09):** the schema (`b4f6a2c81d37`) and reference
+data (8 categories, 32 checkpoints, 5 notices, 6 service standards) are already
+applied to Supabase. Wards and demo reports are seeded with
+`backend/scripts/sync_supabase.py` once the database password is supplied.
+
+Run migrations from a trusted machine or CI, not from the Vercel build:
 
 ```bash
 cd backend
@@ -78,6 +83,18 @@ export DATABASE_URL="postgresql+psycopg://postgres.<project-ref>:<password>@<dir
 ```
 
 Expected head: `b4f6a2c81d37`.
+
+Seed/refresh the reference data, 155 GHMC wards, and the Hyderabad demo reports
+with a direct/session connection:
+
+```bash
+cd backend
+SUPABASE_DATABASE_URL="postgresql://postgres:<password>@<host>:5432/postgres" \
+  ./.venv/Scripts/python.exe -m scripts.sync_supabase
+```
+
+The script is idempotent and prints table counts. It refuses to run unless the
+schema is at `b4f6a2c81d37`.
 
 Never run migrations automatically on Vercel build or cold start. For destructive
 changes, use expand/contract and test on a Supabase branch first.
@@ -109,7 +126,7 @@ Expo app.
 |---|---|
 | `ENVIRONMENT` | `production` |
 | `LOG_LEVEL` | `INFO` |
-| `DATABASE_URL` | Supavisor **transaction** URL, port **6543** |
+| `DATABASE_URL` | Supavisor **transaction** URL, port **6543** (runtime); use a direct/session URL only for migrations/seeding |
 | `SUPABASE_URL` | `https://<project-ref>.supabase.co` |
 | `SUPABASE_ANON_KEY` | public anon/publishable key |
 | `SUPABASE_SERVICE_ROLE_KEY` | **server-only**; optional if storage signing uses the caller token |

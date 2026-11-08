@@ -30,6 +30,7 @@ Phase 9 frontend cut-over is implemented: Supabase email/password signup + login
 | On-device validation | todo | Expo Go against the LAN API |
 | Hyderabad assets | blocked on data | No verified Hyderabad asset dataset; the map is API-driven wards + real issues, no fabricated assets |
 | Supabase project | configured | `ndcmhjdssxnhjlovxyaj`: `evidence` (private) + `avatars` (public) buckets, 1 MiB cap, scoped policies |
+| Runtime database | **Supabase** | Schema `b4f6a2c81d37` + reference data applied; 155 wards/demo sync pending the DB password. Local Docker is pytest-only |
 
 ### Platform and delivery constraints (confirmed 2026-11-08)
 
@@ -156,6 +157,10 @@ Device validation: the app bundles successfully, but it has **not been run in Ex
 | Manual ward override | **Verified:** `areaId` + 0,0 coords → 201, status `manual`; unknown area → 422 |
 | Area resolution | **Verified:** `17.5705589,78.4380271` → 0 covering wards; nearest 129-SURAM 1,840 m |
 | Tile proxy | **Verified:** `GET /api/v1/tiles/13/5880/3689.png` → 200, 26,235-byte PNG, `X-Tile-Provider: osm`, cache header; fallback/UA/502 tests pass |
+| Supabase schema | **Verified via MCP:** `b4f6a2c81d37`; 17 app tables created with RLS |
+| Supabase reference data | **Verified via MCP:** categories 8, checkpoints 32, notices 5, service standards 6 |
+| Supabase wards/demo | **Pending:** run `scripts/sync_supabase.py` with the Supabase direct/session connection string |
+| Backend runtime DB | `backend/.env` now targets Supabase; local backend stopped. Fill `DATABASE_URL`/`SUPABASE_DATABASE_URL` and restart |
 | Frontend bundle | **Verified:** `npx expo export --platform web` → 561 modules, no errors |
 | On-device run | **Not performed** (Expo Go/device unavailable in this environment) |
 | Seed data | **Verified:** 9 Hyderabad reports, comments/votes/confirmations, idempotent rerun |
@@ -200,12 +205,13 @@ Top risks: no verified Hyderabad asset data; Nominatim User-Agent contact and pu
 
 ## 9. Next steps
 
-1. Check out/push `with_supabase_backend`; use the root `README.md` for local setup and `docs/engineering/deployment-runbook.md` for hosting.
-2. Run the app in **Expo Go** on a physical Android device against the LAN API: start FastAPI (`uvicorn app.main:app --host 0.0.0.0 --port 8000`), confirm `frontend/.env` points at the PC LAN IP, then `npx expo start -c`. Validate password signup/login, manual ward selection, create-with-GPS, upload, feed, detail, votes/comments, profile/preferences, export, the area map, and the tile proxy.
-3. Deploy to Vercel + Supabase once B-5 credentials are supplied; follow the deployment runbook, run the release checklist, and rehearse a real rollback.
-4. Obtain a verified Hyderabad asset dataset; assets/inspections remain deferred. KML is treated as open per the owner.
-5. Decide when to build the admin/official UI (APIs are ready).
-6. Add Play Store assets/privacy policy and configure EAS when release work begins.
+1. Set the Supabase direct/session connection string in `backend/.env` (`DATABASE_URL` and `SUPABASE_DATABASE_URL`), then run `python -m scripts.sync_supabase`. This imports 155 wards and the 9 demo reports into Supabase. Local Docker is not required for runtime.
+2. Start FastAPI (`uvicorn app.main:app --host 0.0.0.0 --port 8000`) and verify `GET /api/v1/categories`, `/wards/boundaries`, and `/issues` against Supabase.
+3. Run the app in **Expo Go** on a physical Android device against the LAN API; confirm `frontend/.env` points at the PC LAN IP, then `npx expo start -c`. Validate password signup/login, manual ward selection, create-with-GPS, upload, feed, detail, votes/comments, profile/preferences, export, the area map, and the tile proxy.
+4. Deploy to Vercel + Supabase once B-5 credentials are supplied; follow the deployment runbook, run the release checklist, and rehearse a real rollback.
+5. Obtain a verified Hyderabad asset dataset; assets/inspections remain deferred. KML is treated as open per the owner.
+6. Decide when to build the admin/official UI (APIs are ready).
+7. Add Play Store assets/privacy policy and configure EAS when release work begins.
 5. Integrate the Expo client (Supabase client, session persistence, API client, GPS, email/password UI) and validate on a physical Android device through **Expo Go** against the local backend over LAN.
 6. Add CI and broaden tests; keep the 85-test baseline green.
 7. Configure `android.package`, URL scheme, `eas.json`, EAS project/signing, and Play Console prerequisites.
