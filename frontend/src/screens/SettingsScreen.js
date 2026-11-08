@@ -10,8 +10,11 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons, Feather } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import { COLORS } from '../constants/colors';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../lib/api';
 
 const LANGUAGES = [
   { id: 'en', label: 'English', native: 'English', sub: 'Default interface language' },
@@ -84,6 +87,15 @@ export const SettingsScreen = ({ onBack }) => {
     setIsAppLockEnabled,
     language,
     setLanguage,
+    gpsMaskingRadiusM,
+    setGpsMaskingRadius,
+    lockTimeout,
+    setLockTimeout,
+    notificationChannels,
+    setNotificationChannels,
+    autoClearCache,
+    setAutoClearCache,
+    deleteAccount,
   } = useAuth();
 
   // Full-page subnavigation state: 'main' | subpage ID
@@ -92,31 +104,76 @@ export const SettingsScreen = ({ onBack }) => {
   // Subpage specific configuration states
   const [selectedFormat, setSelectedFormat] = useState('geojson');
   const [isExporting, setIsExporting] = useState(false);
-  const [selectedGpsRadius, setSelectedGpsRadius] = useState('500m');
-  const [selectedLockTimeout, setSelectedLockTimeout] = useState('immediate');
+  const [selectedGpsRadius, setSelectedGpsRadius] = useState(`${gpsMaskingRadiusM}m`);
+  const [selectedLockTimeout, setSelectedLockTimeout] = useState(lockTimeout);
   const [notifChannels, setNotifChannels] = useState({
     statusChanges: true,
     upvotesAndComments: true,
     wardAlerts: true,
     emergencyBroadcasts: true,
-    soundVibrate: true,
+    ...(notificationChannels || {}),
   });
   const [cachedDataSize, setCachedDataSize] = useState('48.6 MB');
-  const [autoClearCache, setAutoClearCache] = useState(true);
 
-  const handleStartExport = () => {
+  const handleStartExport = async () => {
     setIsExporting(true);
-    setTimeout(() => {
-      setIsExporting(false);
-      const format = (selectedFormat || 'GEOJSON').toUpperCase();
-      const handle = user?.handle || 'user';
-      const msg = `Export completed: Saved verified audit history as ${format} to your device downloads.`;
+    try {
+      const response = await api.exportData(selectedFormat);
+      const text = await response.text();
+      const mime =
+        selectedFormat === 'csv'
+          ? 'text/csv'
+          : selectedFormat === 'geojson'
+            ? 'application/geo+json'
+            : 'application/json';
+
       if (Platform.OS === 'web') {
-        alert(msg);
+        const blob = new Blob([text], { type: mime });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `argus-export.${selectedFormat}`;
+        anchor.click();
+        URL.revokeObjectURL(url);
       } else {
-        Alert.alert('Export Complete', msg);
+        const uri = `${FileSystem.cacheDirectory}argus-export.${selectedFormat}`;
+        await FileSystem.writeAsStringAsync(uri, text, {
+          encoding: FileSystem.EncodingType.UTF8,
+        });
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(uri, { mimeType: mime, dialogTitle: 'Argus data export' });
+        } else {
+          Alert.alert('Export saved', uri);
+        }
       }
-    }, 1000);
+    } catch (error) {
+      Alert.alert('Export failed', error.message || 'Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleDeleteAccount = () => {
+    const perform = async () => {
+      try {
+        await deleteAccount();
+        onBack();
+      } catch (error) {
+        Alert.alert('Could not delete account', error.message || 'Please try again.');
+      }
+    };
+    if (Platform.OS === 'web') {
+      if (globalThis.confirm?.('Delete your account and anonymize your reports?')) perform();
+      return;
+    }
+    Alert.alert(
+      'Delete Account',
+      'Your profile is anonymized, personal data is removed, and your reports remain as anonymous civic records. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: perform },
+      ]
+    );
   };
 
   const handleClearCache = () => {
@@ -278,7 +335,10 @@ export const SettingsScreen = ({ onBack }) => {
 
           <TouchableOpacity
             style={styles.primaryActionBtn}
-            onPress={() => setActivePage('main')}
+            onPress={() => {
+              setGpsMaskingRadius(Number(selectedGpsRadius.replace('m', '')));
+              setActivePage('main');
+            }}
             activeOpacity={0.85}
           >
             <Text style={styles.primaryActionBtnText}>Save GPS Privacy Settings</Text>
@@ -346,7 +406,10 @@ export const SettingsScreen = ({ onBack }) => {
 
           <TouchableOpacity
             style={styles.primaryActionBtn}
-            onPress={() => setActivePage('main')}
+            onPress={() => {
+              setLockTimeout(selectedLockTimeout);
+              setActivePage('main');
+            }}
             activeOpacity={0.85}
           >
             <Text style={styles.primaryActionBtnText}>Done</Text>
@@ -445,7 +508,10 @@ export const SettingsScreen = ({ onBack }) => {
 
           <TouchableOpacity
             style={styles.primaryActionBtn}
-            onPress={() => setActivePage('main')}
+            onPress={() => {
+              setNotificationChannels(notifChannels);
+              setActivePage('main');
+            }}
             activeOpacity={0.85}
           >
             <Text style={styles.primaryActionBtnText}>Save Alert Preferences</Text>
@@ -1013,6 +1079,26 @@ export const SettingsScreen = ({ onBack }) => {
               <Text style={styles.menuValueText}>{cachedDataSize}</Text>
               <Feather name="chevron-right" size={18} color={COLORS.muted} />
             </View>
+          </TouchableOpacity>
+
+          {/* Delete Account */}
+          <TouchableOpacity
+            style={styles.menuItem}
+            activeOpacity={0.7}
+            onPress={handleDeleteAccount}
+          >
+            <View style={styles.menuItemLeft}>
+              <View style={styles.menuIconWrap}>
+                <Feather name="user-x" size={20} color="#B42318" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.menuTitle, { color: '#B42318' }]}>Delete My Account</Text>
+                <Text style={styles.menuSubtitle}>
+                  Anonymizes your profile and removes personal data
+                </Text>
+              </View>
+            </View>
+            <Feather name="chevron-right" size={18} color={COLORS.muted} />
           </TouchableOpacity>
 
           {/* About Argus Panoptes */}

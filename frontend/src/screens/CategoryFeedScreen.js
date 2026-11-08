@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -12,8 +12,10 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../constants/colors';
+import { useAuth } from '../context/AuthContext';
 import { useIssues } from '../context/IssuesContext';
 import { IssueCard } from '../components/community/IssueCard';
+import { enrichIssueImages } from '../lib/images';
 
 export const CategoryFeedScreen = ({
   category,
@@ -21,13 +23,29 @@ export const CategoryFeedScreen = ({
   onSelectIssue,
   onOpenCreateIssue,
 }) => {
-  const { getIssuesByCategory, voteIssue } = useIssues();
+  const { loadIssues, voteIssue } = useIssues();
+  const { isLoggedIn, requireAuth } = useAuth();
   const [activeSort, setActiveSort] = useState('trending'); // 'trending' | 'new' | 'top'
   const [isRubricModalVisible, setIsRubricModalVisible] = useState(false);
   const [checkedCheckpoints, setCheckedCheckpoints] = useState({});
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [issues, setIssues] = useState([]);
 
-  const issues = getIssuesByCategory(category.id, activeSort);
+  const fetchFeed = useCallback(
+    async (sort = activeSort) => {
+      const page = await loadIssues({
+        categoryId: category.id,
+        sortBy: sort,
+        limit: 50,
+      });
+      setIssues(await enrichIssueImages(page.items, { enabled: isLoggedIn }));
+    },
+    [activeSort, category.id, isLoggedIn, loadIssues]
+  );
+
+  useEffect(() => {
+    fetchFeed(activeSort).catch(() => setIssues([]));
+  }, [activeSort, fetchFeed]);
 
   const toggleCheckpoint = (id) => {
     setCheckedCheckpoints((prev) => ({
@@ -36,11 +54,20 @@ export const CategoryFeedScreen = ({
     }));
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    setTimeout(() => {
+    try {
+      await fetchFeed(activeSort);
+    } catch {
+      setIssues([]);
+    } finally {
       setIsRefreshing(false);
-    }, 600);
+    }
+  };
+
+  const handleVote = (issueId, direction) => {
+    if (!requireAuth()) return;
+    voteIssue(issueId, direction).catch(() => {});
   };
 
   const sortOptions = [
@@ -155,8 +182,8 @@ export const CategoryFeedScreen = ({
             <IssueCard
               key={issue.id}
               issue={issue}
-              onPress={() => onSelectIssue(issue.id)}
-              onVote={voteIssue}
+              onPress={() => onSelectIssue(issue)}
+              onVote={handleVote}
             />
           ))
         )}
@@ -288,7 +315,10 @@ export const CategoryFeedScreen = ({
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={styles.primaryAuditButton}
-                onPress={() => setIsRubricModalVisible(false)}
+                onPress={() => {
+                  setIsRubricModalVisible(false);
+                  onOpenCreateIssue(category);
+                }}
                 activeOpacity={0.85}
               >
                 <Ionicons name="camera-outline" size={18} color={COLORS.white} />

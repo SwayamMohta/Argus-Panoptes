@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -7,9 +7,13 @@ import {
   ScrollView,
   Platform,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Feather, Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { COLORS } from '../constants/colors';
+import { CATEGORIES_DATA } from '../constants/categoriesData';
+import { api } from '../lib/api';
 
 // Reusable Subpage Header
 const SubPageHeader = ({ title, onBack }) => (
@@ -28,48 +32,42 @@ const SubPageHeader = ({ title, onBack }) => (
 // 1. My Audits Full Page
 // ===========================================================================
 export const MyAuditsPage = ({ onBack }) => {
-  const audits = [
-    {
-      id: 'aud-1',
-      title: 'Pothole Depth & Road Crater Severity',
-      location: 'Banjara Hills, Road No. 12',
-      sector: 'ROADS & WORKS',
-      status: 'Verified',
-      date: 'Nov 02, 2026',
-      hash: '0x8F2A9C11...41E8',
-      score: 96,
-    },
-    {
-      id: 'aud-2',
-      title: 'Streetlight Luminaire Circuit #18',
-      location: 'Jubilee Hills, Road No. 45',
-      sector: 'POWER GRID',
-      status: 'Verified',
-      date: 'Oct 30, 2026',
-      hash: '0x3E7B8820...99A1',
-      score: 92,
-    },
-    {
-      id: 'aud-3',
-      title: 'Roadside Waste Blackspot Clearance',
-      location: 'Begumpet, Prakash Nagar Corner',
-      sector: 'SANITATION',
-      status: 'In Review',
-      date: 'Oct 28, 2026',
-      hash: '0x9D4C2177...55F2',
-      score: 88,
-    },
-    {
-      id: 'aud-4',
-      title: 'Stormwater Sluice Grating Integrity',
-      location: 'Tolichowki, Paramount Hills',
-      sector: 'STORM DRAINAGE',
-      status: 'Verified',
-      date: 'Oct 22, 2026',
-      hash: '0x1A4C9921...88B3',
-      score: 95,
-    },
-  ];
+  const [audits, setAudits] = useState([]);
+  const [kpis, setKpis] = useState({ totalLogged: 0, verified: 0, underReview: 0 });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    api
+      .audits(1, 100)
+      .then((page) => {
+        if (!active) return;
+        setKpis(page.kpis || {});
+        setAudits(
+          (page.items || []).map((issue) => ({
+            id: issue.id,
+            publicRef: issue.publicRef,
+            title: issue.title,
+            location: issue.location,
+            sector:
+              CATEGORIES_DATA.find((category) => category.id === issue.categoryId)?.name ||
+              issue.categoryId,
+            verified: issue.status === 'resolved',
+            statusLabel: issue.statusLabel,
+            date: new Date(issue.createdAt).toLocaleDateString('en-IN', {
+              day: '2-digit',
+              month: 'short',
+              year: 'numeric',
+            }),
+          }))
+        );
+      })
+      .catch(() => {})
+      .finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -78,20 +76,30 @@ export const MyAuditsPage = ({ onBack }) => {
         {/* KPI Ribbon */}
         <View style={styles.kpiRow}>
           <View style={styles.kpiCard}>
-            <Text style={styles.kpiVal}>14</Text>
+            <Text style={styles.kpiVal}>{kpis.totalLogged || 0}</Text>
             <Text style={styles.kpiLabel}>Total Logged</Text>
           </View>
           <View style={styles.kpiCard}>
-            <Text style={[styles.kpiVal, { color: COLORS.brandGreen }]}>12</Text>
+            <Text style={[styles.kpiVal, { color: COLORS.brandGreen }]}>
+              {kpis.verified || 0}
+            </Text>
             <Text style={styles.kpiLabel}>Verified</Text>
           </View>
           <View style={styles.kpiCard}>
-            <Text style={[styles.kpiVal, { color: '#D97706' }]}>2</Text>
+            <Text style={[styles.kpiVal, { color: '#D97706' }]}>
+              {kpis.underReview || 0}
+            </Text>
             <Text style={styles.kpiLabel}>In Review</Text>
           </View>
         </View>
 
         <Text style={styles.sectionHeading}>LOGGED CIVIC AUDITS</Text>
+
+        {loading && <ActivityIndicator color={COLORS.brandGreen} style={{ marginTop: 24 }} />}
+
+        {!loading && audits.length === 0 && (
+          <Text style={styles.emptyText}>No reports yet. Your published reports appear here.</Text>
+        )}
 
         {audits.map((item) => (
           <View key={item.id} style={styles.auditCard}>
@@ -99,24 +107,26 @@ export const MyAuditsPage = ({ onBack }) => {
               <Text style={styles.auditSector}>{item.sector}</Text>
               <View style={styles.statusBadgeClean}>
                 <Ionicons
-                  name={item.status === 'Verified' ? 'shield-checkmark' : 'time-outline'}
+                  name={item.verified ? 'shield-checkmark' : 'time-outline'}
                   size={14}
-                  color={item.status === 'Verified' ? '#15803D' : '#D97706'}
+                  color={item.verified ? '#15803D' : '#D97706'}
                 />
               </View>
             </View>
 
             <Text style={styles.auditTitle}>{item.title}</Text>
-            <Text style={styles.auditLoc}>{item.location} • {item.date}</Text>
+            <Text style={styles.auditLoc}>
+              {item.location} • {item.date}
+            </Text>
 
             <View style={styles.auditFooter}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.hashLabel}>VERIFIED REPORT ID</Text>
-                <Text style={styles.hashText}>REP-{item.id.toUpperCase()}-2026</Text>
+                <Text style={styles.hashLabel}>CIVIC REPORT ID</Text>
+                <Text style={styles.hashText}>{item.publicRef}</Text>
               </View>
               <View style={styles.scorePill}>
-                <Ionicons name="shield-checkmark" size={13} color={COLORS.brandGreen} />
-                <Text style={styles.scoreText}>{item.score}%</Text>
+                <Ionicons name="time-outline" size={13} color={COLORS.brandGreen} />
+                <Text style={styles.scoreText}>{item.statusLabel}</Text>
               </View>
             </View>
           </View>
@@ -129,7 +139,34 @@ export const MyAuditsPage = ({ onBack }) => {
 // ===========================================================================
 // 2. Civic Impact Full Page
 // ===========================================================================
+const inr = (value) => {
+  try {
+    return `₹${new Intl.NumberFormat('en-IN').format(value || 0)}`;
+  } catch {
+    return `₹${value || 0}`;
+  }
+};
+
 export const CivicImpactPage = ({ onBack }) => {
+  const [impact, setImpact] = useState({
+    totalValueInr: 0,
+    verifiedCount: 0,
+    sectorBreakdown: [],
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    api
+      .impact()
+      .then((data) => active && setImpact(data))
+      .catch(() => {})
+      .finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, []);
+
   return (
     <View style={styles.container}>
       <SubPageHeader title="My Civic Impact" onBack={onBack} />
@@ -137,7 +174,7 @@ export const CivicImpactPage = ({ onBack }) => {
         {/* Main Impact Card */}
         <View style={styles.heroImpactCard}>
           <Text style={styles.heroImpactLabel}>TOTAL MUNICIPAL VALUE UNLOCKED</Text>
-          <Text style={styles.heroImpactValue}>₹1,02,400</Text>
+          <Text style={styles.heroImpactValue}>{inr(impact.totalValueInr)}</Text>
           <Text style={styles.heroImpactSub}>
             Estimated public fund waste prevented via early defect reporting
           </Text>
@@ -147,58 +184,54 @@ export const CivicImpactPage = ({ onBack }) => {
         <Text style={styles.sectionHeading}>KEY PERFORMANCE METRICS</Text>
         <View style={styles.statsGrid}>
           <View style={styles.statGridCard}>
-            <Text style={styles.statGridVal}>14</Text>
+            <Text style={styles.statGridVal}>{impact.verifiedCount || 0}</Text>
             <Text style={styles.statGridLabel}>Reports Verified</Text>
-            <Text style={styles.statGridSub}>Across 5 infrastructure sectors</Text>
+            <Text style={styles.statGridSub}>Resolved reports linked to you</Text>
           </View>
           <View style={styles.statGridCard}>
-            <Text style={styles.statGridVal}>1,280</Text>
-            <Text style={styles.statGridLabel}>Citizens Impacted</Text>
-            <Text style={styles.statGridSub}>Ward 102 residents benefited</Text>
+            <Text style={styles.statGridVal}>{impact.sectorBreakdown?.length || 0}</Text>
+            <Text style={styles.statGridLabel}>Infrastructure Sectors</Text>
+            <Text style={styles.statGridSub}>Sectors with resolved reports</Text>
           </View>
           <View style={styles.statGridCard}>
-            <Text style={styles.statGridVal}>94%</Text>
-            <Text style={styles.statGridLabel}>Accuracy Score</Text>
-            <Text style={styles.statGridSub}>First-time verification rate</Text>
+            <Text style={styles.statGridVal}>{inr(impact.totalValueInr)}</Text>
+            <Text style={styles.statGridLabel}>Value Unlocked</Text>
+            <Text style={styles.statGridSub}>Derived from category cost data</Text>
           </View>
           <View style={styles.statGridCard}>
-            <Text style={styles.statGridVal}>350</Text>
-            <Text style={styles.statGridLabel}>Steward XP</Text>
-            <Text style={styles.statGridSub}>Senior Citizen Inspector</Text>
+            <Text style={styles.statGridVal}>Live</Text>
+            <Text style={styles.statGridLabel}>Data Source</Text>
+            <Text style={styles.statGridSub}>Computed from civic records</Text>
           </View>
         </View>
 
         {/* Impact Breakdown */}
         <Text style={styles.sectionHeading}>SECTOR SAVINGS BREAKDOWN</Text>
+        {loading && <ActivityIndicator color={COLORS.brandGreen} style={{ marginTop: 16 }} />}
+        {!loading && (impact.sectorBreakdown || []).length === 0 && (
+          <Text style={styles.emptyText}>
+            No resolved reports yet. Impact is calculated when your reports are resolved.
+          </Text>
+        )}
         <View style={styles.breakdownCard}>
-          <View style={styles.breakdownRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.breakdownSector}>Roads & Works</Text>
-              <Text style={styles.breakdownDesc}>Early crater cold-patch vs full asphalt milling</Text>
+          {(impact.sectorBreakdown || []).map((sector, index, rows) => (
+            <View
+              key={sector.categoryId}
+              style={[
+                styles.breakdownRow,
+                index === rows.length - 1 && { borderBottomWidth: 0 },
+              ]}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.breakdownSector}>{sector.category}</Text>
+                <Text style={styles.breakdownDesc}>
+                  {sector.resolvedCount} resolved{' '}
+                  {sector.resolvedCount === 1 ? 'report' : 'reports'}
+                </Text>
+              </View>
+              <Text style={styles.breakdownAmount}>{inr(sector.valueInr)}</Text>
             </View>
-            <Text style={styles.breakdownAmount}>₹48,000</Text>
-          </View>
-          <View style={styles.breakdownRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.breakdownSector}>Water Supply Works</Text>
-              <Text style={styles.breakdownDesc}>Sluice valve leak isolation (40,000L saved)</Text>
-            </View>
-            <Text style={styles.breakdownAmount}>₹28,400</Text>
-          </View>
-          <View style={styles.breakdownRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.breakdownSector}>Power Grid & Electrical</Text>
-              <Text style={styles.breakdownDesc}>Transformer enclosure repair vs fuse replacement</Text>
-            </View>
-            <Text style={styles.breakdownAmount}>₹16,000</Text>
-          </View>
-          <View style={[styles.breakdownRow, { borderBottomWidth: 0 }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.breakdownSector}>Storm Drainage</Text>
-              <Text style={styles.breakdownDesc}>Culvert desilting before flood accumulation</Text>
-            </View>
-            <Text style={styles.breakdownAmount}>₹10,000</Text>
-          </View>
+          ))}
         </View>
       </ScrollView>
     </View>
@@ -209,37 +242,102 @@ export const CivicImpactPage = ({ onBack }) => {
 // 3. Your Favorite Places Full Page
 // ===========================================================================
 export const FavoritePlacesPage = ({ onBack }) => {
-  const [monitoredPlaces, setMonitoredPlaces] = useState([
-    {
-      id: 'p1',
-      title: 'Banjara Hills, Road No. 12',
-      ward: 'Ward 102 • Khairatabad Circle',
-      issuesCount: 4,
-      lastAudited: 'Yesterday',
-      pinned: true,
-    },
-    {
-      id: 'p2',
-      title: 'Jubilee Hills, Road No. 45 Junction',
-      ward: 'Ward 101 • Jubilee Hills Circle',
-      issuesCount: 2,
-      lastAudited: '3 days ago',
-      pinned: true,
-    },
-    {
-      id: 'p3',
-      title: 'Madhapur 100ft Metro Corridor',
-      ward: 'Ward 108 • Serilingampally Circle',
-      issuesCount: 5,
-      lastAudited: '1 week ago',
-      pinned: true,
-    },
-  ]);
+  const [monitoredPlaces, setMonitoredPlaces] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleTogglePin = (id) => {
-    setMonitoredPlaces((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, pinned: !p.pinned } : p))
+  const loadFavorites = async () => {
+    const rows = await api.favorites();
+    setMonitoredPlaces(
+      (rows || []).map((favorite) => ({
+        id: favorite.id,
+        label: favorite.label,
+        title: favorite.label,
+        ward:
+          [favorite.area, favorite.zone, favorite.circle].filter(Boolean).join(' · ') ||
+          'Saved point',
+        areaId: favorite.areaId,
+        pinned: favorite.pinned,
+      }))
     );
+  };
+
+  useEffect(() => {
+    let active = true;
+    api
+      .favorites()
+      .then((rows) => {
+        if (!active) return;
+        setMonitoredPlaces(
+          (rows || []).map((favorite) => ({
+            id: favorite.id,
+            label: favorite.label,
+            title: favorite.label,
+            ward:
+              [favorite.area, favorite.zone, favorite.circle].filter(Boolean).join(' · ') ||
+              'Saved point',
+            areaId: favorite.areaId,
+            pinned: favorite.pinned,
+          }))
+        );
+      })
+      .catch(() => {})
+      .finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleTogglePin = async (id) => {
+    const place = monitoredPlaces.find((item) => item.id === id);
+    if (!place) return;
+    setMonitoredPlaces((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, pinned: !item.pinned } : item))
+    );
+    try {
+      await api.updateFavorite(id, { pinned: !place.pinned });
+    } catch (error) {
+      Alert.alert('Could not update favorite', error.message);
+      loadFavorites().catch(() => {});
+    }
+  };
+
+  const handleAddFavorite = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Location Permission', 'Location is required to add a monitored place.');
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const lookup = await api.areaAt(position.coords.latitude, position.coords.longitude);
+      await api.addFavorite(
+        lookup.status === 'matched'
+          ? {
+              label: lookup.area.name,
+              areaId: lookup.area.id,
+              coordinates: {
+                lat: position.coords.latitude,
+                lon: position.coords.longitude,
+              },
+            }
+          : {
+              label: 'My current location',
+              coordinates: {
+                lat: position.coords.latitude,
+                lon: position.coords.longitude,
+              },
+            }
+      );
+      await loadFavorites();
+    } catch (error) {
+      if (error.status === 409) {
+        Alert.alert('Already Saved', 'This ward is already in your favorite places.');
+      } else {
+        Alert.alert('Could not add place', error.message || 'Please try again.');
+      }
+    }
   };
 
   return (
@@ -254,6 +352,13 @@ export const FavoritePlacesPage = ({ onBack }) => {
         </View>
 
         <Text style={styles.sectionHeading}>MONITORED CIVIC HOTSPOTS</Text>
+
+        {loading && <ActivityIndicator color={COLORS.brandGreen} style={{ marginTop: 16 }} />}
+        {!loading && monitoredPlaces.length === 0 && (
+          <Text style={styles.emptyText}>
+            No favorite places yet. Add a ward to monitor it from this profile.
+          </Text>
+        )}
 
         {monitoredPlaces.map((place) => (
           <View key={place.id} style={styles.placeCard}>
@@ -276,21 +381,21 @@ export const FavoritePlacesPage = ({ onBack }) => {
 
             <View style={styles.placeFooter}>
               <View style={styles.issueCountPill}>
-                <Ionicons name="alert-circle-outline" size={13} color="#D97706" />
-                <Text style={styles.issueCountText}>{place.issuesCount} Active Issues</Text>
+                <Ionicons name="location-outline" size={13} color="#D97706" />
+                <Text style={styles.issueCountText}>
+                  {place.areaId ? 'GHMC ward' : 'Saved point'}
+                </Text>
               </View>
-              <Text style={styles.placeAuditedText}>Audited {place.lastAudited}</Text>
+              <Text style={styles.placeAuditedText}>
+                {place.pinned ? 'Pinned' : 'Unpinned'}
+              </Text>
             </View>
           </View>
         ))}
 
         <TouchableOpacity
           style={styles.primaryActionBtn}
-          onPress={() => {
-            const msg = 'Enter GPS location or tap any point on the GeoMap screen to add to monitored places.';
-            if (Platform.OS === 'web') alert(msg);
-            else Alert.alert('Add Monitored Place', msg);
-          }}
+          onPress={handleAddFavorite}
           activeOpacity={0.85}
         >
           <Ionicons name="add" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
@@ -383,19 +488,47 @@ export const RtiToolkitPage = ({ onBack }) => {
 // 5. Citizen Charter & SLAs Full Page
 // ===========================================================================
 export const CitizenCharterPage = ({ onBack }) => {
-  const slas = [
-    { service: 'Pothole & Asphalt Repair', standard: '48 Hours', authority: 'Roads & Works Wing', critical: false },
-    { service: 'Drinking Water Pipeline Burst', standard: '12 Hours', authority: 'HMWSSB Water Division', critical: false },
-    { service: 'Streetlight Luminaire Darkness', standard: '24 Hours', authority: 'Electrical Division', critical: false },
-    { service: 'Solid Waste Blackspot Removal', standard: '24 Hours', authority: 'Sanitation Engineering', critical: false },
-    { service: 'Missing Storm Drain Manhole Cover', standard: '6 Hours', authority: 'Stormwater Emergency Squad', critical: true },
-    { service: 'Low Hanging Power Line Clearance', standard: '4 Hours', authority: 'TSSPDCL Electrical Safety', critical: true },
-  ];
+  const [slas, setSlas] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [escalatingId, setEscalatingId] = useState(null);
 
-  const handleEscalate = () => {
-    const msg = 'Statutory notice filed under Citizen Charter SLA breach clause. Notice queued for Zonal Municipal Commissioner.';
-    if (Platform.OS === 'web') alert(msg);
-    else Alert.alert('SLA Escalated', msg);
+  useEffect(() => {
+    let active = true;
+    api
+      .serviceStandards()
+      .then((rows) => {
+        if (!active) return;
+        setSlas(
+          (rows || []).map((row) => ({
+            id: row.id,
+            service: row.service,
+            standard: row.standard,
+            authority: row.authority,
+            critical: row.critical,
+          }))
+        );
+      })
+      .catch(() => {})
+      .finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleEscalate = async (sla) => {
+    if (!sla || escalatingId) return;
+    setEscalatingId(sla.id);
+    try {
+      await api.escalate({
+        serviceStandardId: sla.id,
+        note: `Citizen Charter escalation for ${sla.service}.`,
+      });
+      Alert.alert('SLA Escalated', 'The escalation has been recorded and queued.');
+    } catch (error) {
+      Alert.alert('Could not escalate', error.message || 'Please try again.');
+    } finally {
+      setEscalatingId(null);
+    }
   };
 
   return (
@@ -411,8 +544,15 @@ export const CitizenCharterPage = ({ onBack }) => {
 
         <Text style={styles.sectionHeading}>STATUTORY RESOLUTION TIMELINES</Text>
 
-        {slas.map((sla, idx) => (
-          <View key={idx} style={[styles.slaCard, sla.critical && styles.slaCardCritical]}>
+        {loading && <ActivityIndicator color={COLORS.brandGreen} style={{ marginTop: 16 }} />}
+
+        {slas.map((sla) => (
+          <TouchableOpacity
+            key={sla.id}
+            style={[styles.slaCard, sla.critical && styles.slaCardCritical]}
+            onPress={() => handleEscalate(sla)}
+            activeOpacity={0.8}
+          >
             <View style={styles.slaCardTop}>
               <Text style={[styles.slaService, sla.critical && styles.slaServiceCritical]}>
                 {sla.service}
@@ -424,12 +564,12 @@ export const CitizenCharterPage = ({ onBack }) => {
               </View>
             </View>
             <Text style={styles.slaAuthority}>{sla.authority}</Text>
-          </View>
+          </TouchableOpacity>
         ))}
 
         <TouchableOpacity
           style={styles.dangerActionBtn}
-          onPress={handleEscalate}
+          onPress={() => handleEscalate(slas.find((sla) => sla.critical) || slas[0])}
           activeOpacity={0.85}
         >
           <Feather name="alert-triangle" size={16} color="#DC2626" style={{ marginRight: 8 }} />

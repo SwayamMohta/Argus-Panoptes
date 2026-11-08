@@ -1,214 +1,187 @@
 import React, { useState } from 'react';
 import {
-  StyleSheet,
-  View,
-  Text,
-  TouchableOpacity,
+  ActivityIndicator,
   Modal,
+  StyleSheet,
+  Text,
   TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { Ionicons, Feather } from '@expo/vector-icons';
-import { DEMO_ACCOUNTS } from '../../constants/presets';
+import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/colors';
 import { useAuth } from '../../context/AuthContext';
 
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export const AuthModal = () => {
-  const auth = useAuth() || {};
   const {
-    isAuthModalOpen = false,
-    closeAuthModal = () => {},
-    authMode = 'login',
-    setAuthMode = () => {},
-    loginWithDemo = () => {},
-    registerUser = () => {},
-    setIsLoggedIn = () => {},
-  } = auth;
+    isAuthModalOpen,
+    closeAuthModal,
+    authMode,
+    setAuthMode,
+    isSupabaseConfigured,
+    signIn,
+    signUp,
+  } = useAuth();
 
-  const [authStep, setAuthStep] = useState('input'); // 'input' | 'otp'
-  const [authInput, setAuthInput] = useState('');
-  const [regName, setRegName] = useState('');
-  const [regWard, setRegWard] = useState('');
-  const [otpCode, setOtpCode] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSendOtp = () => {
-    if (authMode === 'login' && !authInput.trim()) {
-      alert('Please enter your mobile number or email address.');
-      return;
-    }
-    if (authMode === 'register') {
-      if (!regName.trim() || !authInput.trim()) {
-        alert('Please enter your full name and contact info.');
-        return;
-      }
-    }
-    setAuthStep('otp');
-  };
+  const isRegister = authMode === 'register';
 
-  const handleVerifyOtp = () => {
-    if (otpCode.length < 4) {
-      alert('Please enter a valid 4-digit code (e.g. 1234).');
-      return;
-    }
-
-    if (authMode === 'register') {
-      registerUser(regName, regWard, authInput);
-    } else {
-      setIsLoggedIn(true);
-      closeAuthModal();
-    }
-    setAuthStep('input');
-    setOtpCode('');
+  const reset = () => {
+    setEmail('');
+    setPassword('');
+    setConfirmPassword('');
+    setError('');
+    setBusy(false);
   };
 
   const handleClose = () => {
-    setAuthStep('input');
-    setOtpCode('');
+    reset();
     closeAuthModal();
   };
 
+  const handleSubmit = async () => {
+    if (!EMAIL.test(email.trim())) {
+      setError('Enter a valid email address.');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
+    if (isRegister && password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
+
+    setBusy(true);
+    setError('');
+    try {
+      if (isRegister) {
+        await signUp(email, password);
+      } else {
+        await signIn(email, password);
+      }
+      reset();
+      closeAuthModal();
+    } catch (requestError) {
+      setError(requestError.message || 'Could not sign in. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
-    <Modal
-      visible={isAuthModalOpen}
-      animationType="slide"
-      transparent={true}
-      onRequestClose={handleClose}
-    >
+    <Modal visible={isAuthModalOpen} animationType="slide" transparent onRequestClose={handleClose}>
       <View style={styles.modalOverlay}>
         <View style={styles.authModalCard}>
           <View style={styles.modalHeaderRow}>
             <Text style={styles.modalHeading}>
-              {authStep === 'otp'
-                ? 'Verify Security Code'
-                : authMode === 'login'
-                ? 'Citizen Sign In'
-                : 'Register Citizen'}
+              {isRegister ? 'Create Account' : 'Citizen Sign In'}
             </Text>
             <TouchableOpacity onPress={handleClose}>
               <Ionicons name="close" size={22} color={COLORS.charcoal} />
             </TouchableOpacity>
           </View>
 
-          {authStep !== 'otp' && (
-            <View style={styles.modalTabBar}>
-              <TouchableOpacity
-                style={[styles.modalTabBtn, authMode === 'login' && styles.modalTabBtnActive]}
-                onPress={() => setAuthMode('login')}
-              >
-                <Text
-                  style={[
-                    styles.modalTabBtnText,
-                    authMode === 'login' && styles.modalTabBtnTextActive,
-                  ]}
-                >
-                  Sign In
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.modalTabBtn, authMode === 'register' && styles.modalTabBtnActive]}
-                onPress={() => setAuthMode('register')}
-              >
-                <Text
-                  style={[
-                    styles.modalTabBtnText,
-                    authMode === 'register' && styles.modalTabBtnTextActive,
-                  ]}
-                >
-                  Register New
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          <View style={styles.tabBar}>
+            <TouchableOpacity
+              style={[styles.tabButton, !isRegister && styles.tabButtonActive]}
+              onPress={() => {
+                setAuthMode('login');
+                setError('');
+              }}
+            >
+              <Text style={[styles.tabText, !isRegister && styles.tabTextActive]}>Sign In</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tabButton, isRegister && styles.tabButtonActive]}
+              onPress={() => {
+                setAuthMode('register');
+                setError('');
+              }}
+            >
+              <Text style={[styles.tabText, isRegister && styles.tabTextActive]}>
+                Create Account
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           <Text style={styles.modalSub}>
-            {authStep === 'otp'
-              ? `Enter the 4-digit code sent to ${authInput}`
-              : authMode === 'login'
-              ? 'Enter your registered phone number or email to access your civic profile.'
-              : 'Create your verified citizen account linked to your municipal ward.'}
+            {isRegister
+              ? 'Use your email and a password. New accounts are created immediately.'
+              : 'Sign in with the email and password you registered.'}
           </Text>
 
-          {authStep === 'input' ? (
-            <>
-              {authMode === 'register' && (
-                <>
-                  <TextInput
-                    style={styles.authInput}
-                    placeholder="Full Name (e.g. Ramesh V)"
-                    placeholderTextColor={COLORS.muted}
-                    value={regName}
-                    onChangeText={setRegName}
-                  />
-                  <TextInput
-                    style={styles.authInput}
-                    placeholder="Ward & Zone (e.g. Ward 112 Indiranagar)"
-                    placeholderTextColor={COLORS.muted}
-                    value={regWard}
-                    onChangeText={setRegWard}
-                  />
-                </>
-              )}
-
-              <TextInput
-                style={styles.authInput}
-                placeholder="Mobile (+91 98765 43210) or Email"
-                placeholderTextColor={COLORS.muted}
-                value={authInput}
-                onChangeText={setAuthInput}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-
-              <TouchableOpacity style={styles.authSubmitBtn} onPress={handleSendOtp} activeOpacity={0.85}>
-                <Text style={styles.authSubmitBtnText}>
-                  {authMode === 'login' ? 'Send OTP Code →' : 'Continue to Verification →'}
-                </Text>
-              </TouchableOpacity>
-
-              {/* Instant Demo Switch within Modal */}
-              <View style={styles.modalQuickDemoBlock}>
-                <Text style={styles.modalDemoHeading}>Or sign in instantly with test account:</Text>
-                <View style={styles.quickDemoPillsRow}>
-                  {DEMO_ACCOUNTS.map((acc, i) => (
-                    <TouchableOpacity
-                      key={i}
-                      style={styles.demoPill}
-                      onPress={() => loginWithDemo(acc)}
-                      activeOpacity={0.7}
-                    >
-                      <Feather
-                        name={acc.avatarIcon || 'user'}
-                        size={14}
-                        color={acc.avatarIconColor || COLORS.charcoal}
-                      />
-                      <Text style={styles.demoPillText}>{acc.name}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            </>
-          ) : (
-            <>
-              <TextInput
-                style={[
-                  styles.authInput,
-                  { letterSpacing: 8, textAlign: 'center', fontSize: 20, fontWeight: '700' },
-                ]}
-                placeholder="1234"
-                placeholderTextColor={COLORS.muted}
-                value={otpCode}
-                onChangeText={setOtpCode}
-                keyboardType="number-pad"
-                maxLength={4}
-              />
-              <TouchableOpacity style={styles.authSubmitBtn} onPress={handleVerifyOtp} activeOpacity={0.85}>
-                <Text style={styles.authSubmitBtnText}>Confirm & Sign In</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setAuthStep('input')} style={{ marginTop: 14, alignItems: 'center' }}>
-                <Text style={{ fontSize: 13, color: COLORS.subtext, fontWeight: '600' }}>← Change credentials</Text>
-              </TouchableOpacity>
-            </>
+          {!isSupabaseConfigured && (
+            <Text style={styles.errorText}>
+              Supabase is not configured. Set EXPO_PUBLIC_SUPABASE_URL and
+              EXPO_PUBLIC_SUPABASE_ANON_KEY.
+            </Text>
           )}
+
+          <TextInput
+            style={styles.authInput}
+            placeholder="you@example.com"
+            placeholderTextColor={COLORS.muted}
+            value={email}
+            onChangeText={(value) => {
+              setEmail(value);
+              setError('');
+            }}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TextInput
+            style={styles.authInput}
+            placeholder="Password (6+ characters)"
+            placeholderTextColor={COLORS.muted}
+            value={password}
+            onChangeText={(value) => {
+              setPassword(value);
+              setError('');
+            }}
+            secureTextEntry
+            autoCapitalize="none"
+          />
+          {isRegister && (
+            <TextInput
+              style={styles.authInput}
+              placeholder="Confirm password"
+              placeholderTextColor={COLORS.muted}
+              value={confirmPassword}
+              onChangeText={(value) => {
+                setConfirmPassword(value);
+                setError('');
+              }}
+              secureTextEntry
+              autoCapitalize="none"
+            />
+          )}
+
+          <TouchableOpacity
+            style={[styles.authSubmitBtn, busy && styles.btnDisabled]}
+            onPress={handleSubmit}
+            disabled={busy || !isSupabaseConfigured}
+            activeOpacity={0.85}
+          >
+            {busy ? (
+              <ActivityIndicator color={COLORS.white} />
+            ) : (
+              <Text style={styles.authSubmitBtnText}>
+                {isRegister ? 'Create Account' : 'Sign In'}
+              </Text>
+            )}
+          </TouchableOpacity>
+
+          {!!error && <Text style={styles.errorText}>{error}</Text>}
         </View>
       </View>
     </Modal>
@@ -246,34 +219,28 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: COLORS.charcoal,
   },
-  modalTabBar: {
+  tabBar: {
     flexDirection: 'row',
     backgroundColor: COLORS.surfaceLight,
     borderRadius: 8,
     padding: 3,
     marginBottom: 14,
   },
-  modalTabBtn: {
+  tabButton: {
     flex: 1,
     paddingVertical: 8,
     alignItems: 'center',
-    justifyContent: 'center',
     borderRadius: 6,
   },
-  modalTabBtnActive: {
+  tabButtonActive: {
     backgroundColor: COLORS.white,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-    elevation: 1,
   },
-  modalTabBtnText: {
+  tabText: {
     fontSize: 12,
     fontWeight: '600',
     color: COLORS.subtext,
   },
-  modalTabBtnTextActive: {
+  tabTextActive: {
     color: COLORS.charcoal,
     fontWeight: '700',
   },
@@ -300,43 +267,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  btnDisabled: {
+    opacity: 0.6,
+  },
   authSubmitBtnText: {
     color: COLORS.white,
     fontSize: 14,
     fontWeight: '700',
   },
-  modalQuickDemoBlock: {
-    marginTop: 18,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F1F2',
-  },
-  modalDemoHeading: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: COLORS.subtext,
-    marginBottom: 8,
-    textTransform: 'uppercase',
-  },
-  quickDemoPillsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  demoPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: COLORS.white,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  demoPillText: {
+  errorText: {
+    marginTop: 12,
     fontSize: 12,
-    fontWeight: '700',
-    color: COLORS.charcoal,
+    color: '#B42318',
+    lineHeight: 17,
   },
 });

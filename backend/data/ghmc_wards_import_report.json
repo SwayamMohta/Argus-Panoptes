@@ -1,0 +1,58 @@
+{
+  "source": "C:\\Users\\Administrator\\Desktop\\Argus\\Argus-Panoptes\\ghmc_wards.kml",
+  "source_format": "KML 2.2 (WGS84 lon/lat)",
+  "placemarks_in_file": 155,
+  "areas_imported": 155,
+  "unique_ward_names": 155,
+  "empty_names": 0,
+  "duplicate_name_groups": {},
+  "geometry_types_in_file": {
+    "Polygon": 148,
+    "MultiPolygon": 7
+  },
+  "total_vertices_in_file": 43510,
+  "invalid_geometries_in_source": 0,
+  "overlapping_area_pairs": 25,
+  "bbox": [
+    78.238974956,
+    17.290716392,
+    78.6217149010001,
+    17.5610012980001
+  ],
+  "zones": {
+    "KUKATPALLY ZONE": 22,
+    "SECUNDERABAD ZONE": 27,
+    "CANTONMENT AREA": 1,
+    "SERILINGAMPALLY ZONE": 15,
+    "L.B.NAGAR ZONE": 23,
+    "CHARMINAR ZONE": 36,
+    "GRAMPANCHAYAT PEERZADIGUDA": 1,
+    "KALAVANCHA GRAMPANCHAYATH": 1,
+    "KHAIRATHABAD ZONE": 27,
+    "OU": 1,
+    "BANDLAGUDA": 1
+  },
+  "circles": 35,
+  "recognizable_names": {
+    "KUKATPALLY": [
+      "121-KUKATPALLY"
+    ],
+    "BANJARA HILLS": [
+      "93-BANJARA HILLS"
+    ],
+    "MADHAPUR": [
+      "107-MADHAPUR"
+    ],
+    "GACHIBOWLI": [
+      "105-GACHIBOWLI"
+    ],
+    "SECUNDERABAD": [],
+    "HITEC CITY": [],
+    "TOLICHOWKI": [
+      "68-TOLICHOWKI"
+    ],
+    "DILSUKHNAGAR": []
+  },
+  "attribution": "GHMC ward boundaries (ghmc_wards.kml)",
+  "licence_note": "Licence/attribution to be confirmed by the project owner."
+}

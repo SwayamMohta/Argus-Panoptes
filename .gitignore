@@ -61,8 +61,10 @@ backend/coverage/
 !.env.example
 frontend/.env
 frontend/.env.*
+!frontend/.env.example
 backend/.env
 backend/.env.*
+!backend/.env.example
 
 # Local Databases & Storage
 *.sqlite
@@ -114,3 +116,15 @@ $RECYCLE.BIN/
 *.tmp
 *.temp
 .antigravity/
+
+# Local agent/session artifacts (machine-specific, not part of the deliverable)
+.claude/
+.mcp.json
+CLAUDE.md
+HANDOVER.md
+SESSION_*.md
+
+# Superseded / historical inputs and prose (current sources are ghmc_wards.kml and docs/engineering/)
+wards_hyderabad.geojson
+CONTEXT.md
+documentation.md

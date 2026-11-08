@@ -24,7 +24,11 @@ export const LocationHeader = ({
         </View>
         <View style={styles.textWrap}>
           <Text style={styles.localityText} numberOfLines={1}>
-            {selectedLocality ? `${selectedLocality.name} · ${selectedLocality.ward}` : 'Select Locality'}
+            {selectedLocality
+              ? `Filter: ${selectedLocality.name}${
+                  selectedLocality.ward ? ` · ${selectedLocality.ward}` : ''
+                }`
+              : 'Select Locality'}
           </Text>
         </View>
         <Ionicons name="chevron-down" size={14} color="#64748B" style={styles.chevronIcon} />

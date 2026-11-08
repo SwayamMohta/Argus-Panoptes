@@ -21,7 +21,7 @@ export const EditProfileScreen = ({ onBack }) => {
   const {
     user,
     updateUserProfile,
-    updateAvatarUrl,
+    updateAvatar,
     resetAvatar,
   } = useAuth();
 
@@ -33,8 +33,8 @@ export const EditProfileScreen = ({ onBack }) => {
   // Address & Location State
   const [address, setAddress] = useState(user?.address || '');
   const [area, setArea] = useState(user?.area || user?.ward || '');
-  const [city, setCity] = useState(user?.city || 'Bengaluru');
-  const [state, setState] = useState(user?.state || 'Karnataka');
+  const [city, setCity] = useState(user?.city || 'Hyderabad');
+  const [state, setState] = useState(user?.state || 'Telangana');
   const [pincode, setPincode] = useState(user?.pincode || '');
 
   // Photo Selection Sheet State
@@ -43,23 +43,24 @@ export const EditProfileScreen = ({ onBack }) => {
 
   const isImageAvatar = user.avatarType === 'image' && !!user.avatarUri;
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim()) {
-      alert('Please enter your legal name.');
+      Alert.alert('Profile', 'Please enter your display name.');
       return;
     }
-    updateUserProfile({
-      name: name.trim(),
-      email: email.trim(),
-      phone: phone.trim(),
-      address: address.trim(),
-      area: area.trim(),
-      city: city.trim(),
-      state: state.trim(),
-      pincode: pincode.trim(),
-      ward: area.trim() ? `${area.trim()}, ${city.trim()}` : user.ward,
-    });
-    onBack();
+    try {
+      await updateUserProfile({
+        name: name.trim(),
+        address: address.trim(),
+        area: area.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        pincode: pincode.trim(),
+      });
+      onBack();
+    } catch (error) {
+      Alert.alert('Could not save profile', error.message || 'Please try again.');
+    }
   };
 
   const pickImageFromGallery = async () => {
@@ -87,7 +88,7 @@ export const EditProfileScreen = ({ onBack }) => {
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const pickedUri = result.assets[0].uri;
-        updateAvatarUrl(pickedUri);
+        await updateAvatar(pickedUri);
         setIsPhotoPickerOpen(false);
       }
     } catch (error) {
@@ -100,9 +101,13 @@ export const EditProfileScreen = ({ onBack }) => {
           const file = e.target.files?.[0];
           if (file) {
             const reader = new FileReader();
-            reader.onload = (event) => {
-              updateAvatarUrl(event.target.result);
-              setIsPhotoPickerOpen(false);
+            reader.onload = async (event) => {
+              try {
+                await updateAvatar(event.target.result);
+                setIsPhotoPickerOpen(false);
+              } catch (uploadError) {
+                Alert.alert('Could not upload photo', uploadError.message);
+              }
             };
             reader.readAsDataURL(file);
           }
@@ -138,7 +143,7 @@ export const EditProfileScreen = ({ onBack }) => {
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const capturedUri = result.assets[0].uri;
-        updateAvatarUrl(capturedUri);
+        await updateAvatar(capturedUri);
         setIsPhotoPickerOpen(false);
       }
     } catch (error) {
@@ -258,13 +263,13 @@ export const EditProfileScreen = ({ onBack }) => {
               <TextInput
                 style={styles.fieldInput}
                 value={email}
-                onChangeText={setEmail}
+                editable={false}
                 placeholder="auditor@citizen.org"
                 placeholderTextColor={COLORS.muted}
                 keyboardType="email-address"
                 autoCapitalize="none"
               />
-              <Feather name="edit-2" size={13} color="#9BA1A6" style={styles.faintEditIcon} />
+              <Feather name="lock" size={13} color="#9BA1A6" style={styles.faintEditIcon} />
             </View>
 
             <View style={styles.fieldDivider} />
@@ -275,12 +280,12 @@ export const EditProfileScreen = ({ onBack }) => {
               <TextInput
                 style={styles.fieldInput}
                 value={phone}
-                onChangeText={setPhone}
+                editable={false}
                 placeholder="+91 98765 00000"
                 placeholderTextColor={COLORS.muted}
                 keyboardType="phone-pad"
               />
-              <Feather name="edit-2" size={13} color="#9BA1A6" style={styles.faintEditIcon} />
+              <Feather name="lock" size={13} color="#9BA1A6" style={styles.faintEditIcon} />
             </View>
           </View>
         </View>

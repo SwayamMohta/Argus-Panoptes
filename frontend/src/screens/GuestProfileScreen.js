@@ -2,12 +2,11 @@ import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, ScrollView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { COLORS } from '../constants/colors';
-import { DEMO_ACCOUNTS } from '../constants/presets';
 import { useAuth } from '../context/AuthContext';
 import { ProfileBanner } from '../components/profile/ProfileBanner';
 
 export const GuestProfileScreen = () => {
-  const { openAuthModal, loginWithDemo } = useAuth();
+  const { openAuthModal } = useAuth();
 
   return (
     <ScrollView style={styles.profileScrollView} contentContainerStyle={styles.profileScrollContent}>
@@ -49,27 +48,6 @@ export const GuestProfileScreen = () => {
           </TouchableOpacity>
         </View>
 
-        {/* Quick Demo Account Switcher */}
-        <View style={styles.quickDemoCard}>
-          <Text style={styles.quickDemoLabel}>Instant Test Logins:</Text>
-          <View style={styles.quickDemoPillsRow}>
-            {DEMO_ACCOUNTS.map((acc, i) => (
-              <TouchableOpacity
-                key={i}
-                style={styles.demoPill}
-                onPress={() => loginWithDemo(acc)}
-                activeOpacity={0.7}
-              >
-                <Feather
-                  name={acc.avatarIcon || 'user'}
-                  size={14}
-                  color={acc.avatarIconColor || COLORS.charcoal}
-                />
-                <Text style={styles.demoPillText}>{acc.name.split(' ')[0]}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
       </View>
 
       {/* Thick Divider */}

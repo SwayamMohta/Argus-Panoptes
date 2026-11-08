@@ -6,13 +6,13 @@ import {
   StatusBar,
   Dimensions,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
 import { COLORS } from './src/constants/colors';
 import { TABS } from './src/constants/tabs';
-import { AuthProvider } from './src/context/AuthContext';
+import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { IssuesProvider } from './src/context/IssuesContext';
 import { CurvedBottomBar } from './src/components/navigation/CurvedBottomBar';
-import { MediaModal } from './src/components/modals/MediaModal';
 import { AuthModal } from './src/components/modals/AuthModal';
 
 import { HomeScreen } from './src/screens/HomeScreen';
@@ -29,7 +29,9 @@ const TAB_SPACING = (BAR_WIDTH - 2 * EDGE_PAD) / (TABS.length - 1);
 const getTabCx = (index) => EDGE_PAD + index * TAB_SPACING;
 
 function MainApp() {
+  const { initializing } = useAuth();
   const [activeTab, setActiveTab] = useState('home');
+  const [mapTarget, setMapTarget] = useState(null);
 
   const activeIndex = TABS.findIndex((t) => t.id === activeTab);
   const initialCx = getTabCx(activeIndex >= 0 ? activeIndex : 1);
@@ -42,7 +44,8 @@ function MainApp() {
 
   const [currentNotchCx, setCurrentNotchCx] = useState(initialCx);
 
-  const handleTabPress = (tabId, index) => {
+  const handleTabPress = (tabId, index, params = {}) => {
+    if (params.area) setMapTarget(params.area);
     if (tabId === activeTab) return;
 
     const tabIndex = typeof index === 'number' ? index : TABS.findIndex((t) => t.id === tabId);
@@ -92,14 +95,25 @@ function MainApp() {
       case 'sectors':
         return <CategoriesScreen />;
       case 'home':
-        return <HomeScreen onNavigateTab={(tab) => handleTabPress(tab)} />;
+        return <HomeScreen onNavigateTab={handleTabPress} />;
       case 'map':
-        return <GeoMapScreen />;
+        return <GeoMapScreen initialArea={mapTarget} onAreaConsumed={() => setMapTarget(null)} />;
       case 'profile':
       default:
         return <ProfileScreen />;
     }
   };
+
+  if (initializing) {
+    return (
+      <SafeAreaView style={styles.rootContainer}>
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.brandGreen} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.rootContainer}>
@@ -130,8 +144,7 @@ function MainApp() {
         getTabCx={getTabCx}
       />
 
-      {/* Global Modals */}
-      <MediaModal />
+      {/* Global modals */}
       <AuthModal />
     </SafeAreaView>
   );
@@ -157,5 +170,10 @@ const styles = StyleSheet.create({
   },
   animatedContainer: {
     flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -9,13 +9,16 @@ import {
   Platform,
   Alert,
   Share,
+  ActivityIndicator,
 } from 'react-native';
+import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../constants/colors';
 import { useIssues } from '../context/IssuesContext';
 import { useAuth } from '../context/AuthContext';
 import { VoteControl } from '../components/community/VoteControl';
 import { CommentSection } from '../components/community/CommentSection';
+import { enrichIssueImages } from '../lib/images';
 
 const STATUS_CONFIG = {
   reported: {
@@ -37,16 +40,98 @@ const STATUS_CONFIG = {
 };
 
 export const IssueDetailScreen = ({ issueId, category, onBack }) => {
-  const { getIssueById, voteIssue, addComment, voteComment } = useIssues();
-  const { user } = useAuth();
+  const { loadIssue, voteIssue, confirmIssue, addComment, voteComment } = useIssues();
+  const { user, isLoggedIn, requireAuth } = useAuth();
   const [showTimelineDetails, setShowTimelineDetails] = useState(true);
+  const [issue, setIssue] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  const issue = getIssueById(issueId);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErrorMsg('');
+    try {
+      const detail = await loadIssue(issueId);
+      const [withImages] = await enrichIssueImages([detail], {
+        resolution: true,
+        enabled: isLoggedIn,
+      });
+      setIssue(withImages);
+    } catch (error) {
+      setErrorMsg(error.message || 'Issue not found or was removed.');
+    } finally {
+      setLoading(false);
+    }
+  }, [issueId, isLoggedIn, loadIssue]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const handleVote = async (direction) => {
+    if (!requireAuth()) return;
+    try {
+      await voteIssue(issueId, direction);
+      await load();
+    } catch (error) {
+      Alert.alert('Vote failed', error.message);
+    }
+  };
+
+  const handleConfirm = async () => {
+    if (!requireAuth()) return;
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Location Permission', 'Location is required to confirm a report.');
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      await confirmIssue(issueId, position.coords.latitude, position.coords.longitude);
+      await load();
+    } catch (error) {
+      Alert.alert('Could not confirm', error.message);
+    }
+  };
+
+  const handleAddComment = async (id, text, parentId, authorInfo) => {
+    const isAnonymous =
+      typeof authorInfo === 'boolean' ? authorInfo : Boolean(authorInfo?.isAnonymous);
+    try {
+      await addComment(id, text, parentId, isAnonymous);
+      await load();
+    } catch (error) {
+      Alert.alert('Comment failed', error.message || 'Please try again.');
+    }
+  };
+
+  const handleVoteComment = async (id, commentId, direction) => {
+    if (!requireAuth()) return;
+    try {
+      await voteComment(id, commentId, direction);
+      await load();
+    } catch (error) {
+      Alert.alert('Vote failed', error.message);
+    }
+  };
+
+  if (loading && !issue) {
+    return (
+      <View style={styles.notFoundContainer}>
+        <ActivityIndicator size="large" color={COLORS.brandGreen} />
+        <Text style={styles.notFoundText}>Loading report…</Text>
+      </View>
+    );
+  }
 
   if (!issue) {
     return (
       <View style={styles.notFoundContainer}>
-        <Text style={styles.notFoundText}>Issue not found or was removed.</Text>
+        <Text style={styles.notFoundText}>
+          {errorMsg || 'Issue not found or was removed.'}
+        </Text>
         <TouchableOpacity style={styles.backBtnFallback} onPress={onBack}>
           <Text style={styles.backBtnFallbackText}>Go Back</Text>
         </TouchableOpacity>
@@ -186,6 +271,18 @@ export const IssueDetailScreen = ({ issueId, category, onBack }) => {
           </View>
         )}
 
+        {!!issue.resolvedImage && (
+          <View style={styles.evidenceSection}>
+            <View style={styles.evidenceHeaderRow}>
+              <Ionicons name="checkmark-circle-outline" size={15} color="#15803D" />
+              <Text style={styles.evidenceHeading}>Resolution Evidence</Text>
+            </View>
+            <View style={styles.imageCard}>
+              <Image source={{ uri: issue.resolvedImage }} style={styles.evidenceImage} resizeMode="cover" />
+            </View>
+          </View>
+        )}
+
         {/* Status Timeline Section */}
         <View style={styles.timelineCard}>
           <TouchableOpacity
@@ -268,10 +365,31 @@ export const IssueDetailScreen = ({ issueId, category, onBack }) => {
             <VoteControl
               upvotes={issue.upvotes || 0}
               userVote={issue.userVote || 0}
-              onVote={(dir) => voteIssue(issue.id, dir)}
+              onVote={handleVote}
               size="normal"
             />
           </View>
+
+          <TouchableOpacity
+            style={[styles.shareActionBtn, issue.userConfirmed && styles.confirmedActionBtn]}
+            onPress={handleConfirm}
+          >
+            <Ionicons
+              name={issue.userConfirmed ? 'shield-checkmark' : 'shield-checkmark-outline'}
+              size={16}
+              color={issue.userConfirmed ? '#15803D' : '#475569'}
+            />
+            <Text
+              style={[
+                styles.shareActionText,
+                issue.userConfirmed && styles.confirmedActionText,
+              ]}
+            >
+              {issue.userConfirmed
+                ? 'Witnessed'
+                : `Witness (${issue.confirmationsCount || 0})`}
+            </Text>
+          </TouchableOpacity>
 
           <TouchableOpacity style={styles.shareActionBtn} onPress={handleShare}>
             <Ionicons name="share-social-outline" size={16} color="#475569" />
@@ -283,8 +401,8 @@ export const IssueDetailScreen = ({ issueId, category, onBack }) => {
         <CommentSection
           issueId={issue.id}
           comments={issue.comments || []}
-          onAddComment={addComment}
-          onVoteComment={voteComment}
+          onAddComment={handleAddComment}
+          onVoteComment={handleVoteComment}
           currentUser={user}
         />
       </ScrollView>
@@ -659,6 +777,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#475569',
+  },
+  confirmedActionBtn: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#BBF7D0',
+  },
+  confirmedActionText: {
+    color: '#15803D',
   },
 });
 

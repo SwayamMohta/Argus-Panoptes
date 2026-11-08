@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   View,
@@ -23,10 +23,45 @@ export const PersonalCivicActivityModal = ({
   onClose,
   onSelectIssue,
 }) => {
-  const { issues } = useIssues();
-  const { user } = useAuth();
+  const { loadActivity } = useIssues();
+  const { isLoggedIn } = useAuth();
   const [activeTab, setActiveTab] = useState('confirmed');
+  const [lists, setLists] = useState({ submitted: [], confirmed: [], resolved: [], tracked: [] });
+  const [totals, setTotals] = useState({ submitted: 0, confirmed: 0, resolved: 0, tracked: 0 });
+  const [loading, setLoading] = useState(false);
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT * 0.5)).current;
+
+  const loadTab = useCallback(
+    async (tab, limit = 50) => {
+      if (!isLoggedIn) {
+        setLists((previous) => ({ ...previous, [tab]: [] }));
+        setTotals((previous) => ({ ...previous, [tab]: 0 }));
+        return;
+      }
+      setLoading(true);
+      try {
+        const page = await loadActivity(tab, 1, limit);
+        setLists((previous) => ({ ...previous, [tab]: page.items }));
+        setTotals((previous) => ({ ...previous, [tab]: page.total || 0 }));
+      } catch {
+        setLists((previous) => ({ ...previous, [tab]: [] }));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [isLoggedIn, loadActivity]
+  );
+
+  useEffect(() => {
+    if (!visible) return;
+    ['submitted', 'confirmed', 'resolved', 'tracked'].forEach((tab) => {
+      loadTab(tab, 1);
+    });
+  }, [visible, loadTab]);
+
+  useEffect(() => {
+    if (visible) loadTab(activeTab);
+  }, [activeTab, visible, loadTab]);
 
   useEffect(() => {
     if (visible) {
@@ -52,41 +87,7 @@ export const PersonalCivicActivityModal = ({
     });
   };
 
-  // Derive genuine civic activity stats
-  const submittedIssues = useMemo(() => {
-    return issues.filter(
-      (iss) =>
-        iss.author === user?.name ||
-        iss.author === 'u/civic_scout_91' ||
-        iss.author === 'Anonymous Citizen'
-    );
-  }, [issues, user]);
-
-  const confirmedIssues = useMemo(() => {
-    return issues.filter((iss) => !!iss.userConfirmed);
-  }, [issues]);
-
-  const resolvedIssues = useMemo(() => {
-    return issues.filter((iss) => iss.status === 'resolved');
-  }, [issues]);
-
-  const trackedIssues = useMemo(() => {
-    return issues.filter((iss) => !!iss.userConfirmed || (iss.userVote && iss.userVote > 0));
-  }, [issues]);
-
-  const currentList = useMemo(() => {
-    switch (activeTab) {
-      case 'submitted':
-        return submittedIssues;
-      case 'confirmed':
-        return confirmedIssues;
-      case 'resolved':
-        return resolvedIssues;
-      case 'tracked':
-      default:
-        return trackedIssues;
-    }
-  }, [activeTab, submittedIssues, confirmedIssues, resolvedIssues, trackedIssues]);
+  const currentList = lists[activeTab] || [];
 
   return (
     <Modal
@@ -133,7 +134,7 @@ export const PersonalCivicActivityModal = ({
                   onPress={() => setActiveTab('submitted')}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.statNumber}>{submittedIssues.length}</Text>
+                  <Text style={styles.statNumber}>{totals.submitted}</Text>
                   <Text style={styles.statLabel}>Submitted</Text>
                 </TouchableOpacity>
 
@@ -142,7 +143,7 @@ export const PersonalCivicActivityModal = ({
                   onPress={() => setActiveTab('confirmed')}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.statNumber, { color: '#15803D' }]}>{confirmedIssues.length}</Text>
+                  <Text style={[styles.statNumber, { color: '#15803D' }]}>{totals.confirmed}</Text>
                   <Text style={styles.statLabel}>Witnessed</Text>
                 </TouchableOpacity>
 
@@ -151,7 +152,7 @@ export const PersonalCivicActivityModal = ({
                   onPress={() => setActiveTab('resolved')}
                   activeOpacity={0.7}
                 >
-                  <Text style={[styles.statNumber, { color: '#2563EB' }]}>{resolvedIssues.length}</Text>
+                  <Text style={[styles.statNumber, { color: '#2563EB' }]}>{totals.resolved}</Text>
                   <Text style={styles.statLabel}>Resolved</Text>
                 </TouchableOpacity>
 
@@ -160,7 +161,7 @@ export const PersonalCivicActivityModal = ({
                   onPress={() => setActiveTab('tracked')}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.statNumber}>{trackedIssues.length}</Text>
+                  <Text style={styles.statNumber}>{totals.tracked}</Text>
                   <Text style={styles.statLabel}>Tracked</Text>
                 </TouchableOpacity>
               </View>
@@ -173,7 +174,7 @@ export const PersonalCivicActivityModal = ({
                   {activeTab === 'resolved' && 'Nearby Civic Issues Resolved'}
                   {activeTab === 'tracked' && 'Issues Currently Under Active Tracking'}
                 </Text>
-                <Text style={styles.tabSectionCount}>{currentList.length} items</Text>
+                <Text style={styles.tabSectionCount}>{loading ? "Loading…" : `${currentList.length} items`}</Text>
               </View>
 
               {/* Scrollable List */}

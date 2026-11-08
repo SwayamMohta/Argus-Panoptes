@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -11,6 +11,7 @@ import {
 import { COLORS } from '../constants/colors';
 import { CATEGORIES_DATA } from '../constants/categoriesData';
 import { CATEGORY_IMAGES } from '../constants/categoryImages';
+import { api } from '../lib/api';
 import { CategoryFeedScreen } from './CategoryFeedScreen';
 import { IssueDetailScreen } from './IssueDetailScreen';
 import { CreateIssueScreen } from './CreateIssueScreen';
@@ -21,6 +22,20 @@ export const CategoriesScreen = () => {
   const [currentView, setCurrentView] = useState('grid');
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [selectedIssueId, setSelectedIssueId] = useState(null);
+  const [categories, setCategories] = useState(CATEGORIES_DATA);
+
+  useEffect(() => {
+    let active = true;
+    api
+      .categories()
+      .then((rows) => {
+        if (active && rows?.length) setCategories(rows);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Navigate to category community feed
   const handleCategoryPress = (category) => {
@@ -36,8 +51,14 @@ export const CategoriesScreen = () => {
   };
 
   // Open issue detail discussion page
-  const handleSelectIssue = (issueId) => {
-    setSelectedIssueId(issueId);
+  const handleSelectIssue = (issue) => {
+    if (typeof issue === 'string') {
+      setSelectedIssueId(issue);
+    } else {
+      setSelectedIssueId(issue.id);
+      const category = categories.find((item) => item.id === issue.categoryId);
+      if (category) setSelectedCategory(category);
+    }
     setCurrentView('detail');
   };
 
@@ -104,7 +125,7 @@ export const CategoriesScreen = () => {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.gridContainer}>
-          {CATEGORIES_DATA.map((category) => (
+          {categories.map((category) => (
             <TouchableOpacity
               key={category.id}
               style={styles.categoryCard}

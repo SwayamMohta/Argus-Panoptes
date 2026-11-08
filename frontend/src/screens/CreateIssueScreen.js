@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -11,13 +11,16 @@ import {
   Platform,
   Alert,
   KeyboardAvoidingView,
+  ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../constants/colors';
 import { useIssues } from '../context/IssuesContext';
 import { useAuth } from '../context/AuthContext';
-import { CATEGORY_IMAGES } from '../constants/categoryImages';
+import { api } from '../lib/api';
+import { isInHyderabad } from '../lib/format';
 
 const QUICK_LOCALITIES = [
   'Banjara Hills',
@@ -30,16 +33,27 @@ const QUICK_LOCALITIES = [
   'Kondapur',
 ];
 
+const FALLBACK_CATEGORY = {
+  id: 'roads',
+  name: 'Roads & Works',
+  shortName: 'Roads',
+  icon: 'car-outline',
+  color: '#4B5563',
+  bgColor: '#F1F5F9',
+  checkpoints: [],
+};
+
 export const CreateIssueScreen = ({
   category,
   initialImageUri = null,
   initialLocation = '',
+  initialArea = null,
   onBack,
   onSuccess,
 }) => {
-  const activeCategory = category || CATEGORIES_DATA[2];
-  const { addIssue } = useIssues();
-  const { user } = useAuth();
+  const activeCategory = category || FALLBACK_CATEGORY;
+  const { createIssue } = useIssues();
+  const { requireAuth } = useAuth();
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -48,6 +62,108 @@ export const CreateIssueScreen = ({
   const [isAnonymous, setIsAnonymous] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [coords, setCoords] = useState(null);
+  const [gpsBusy, setGpsBusy] = useState(false);
+  const [areaLabel, setAreaLabel] = useState(initialArea?.name || '');
+  const [wards, setWards] = useState([]);
+  const [wardQuery, setWardQuery] = useState('');
+  const [selectedWard, setSelectedWard] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    api
+      .wards()
+      .then((rows) => {
+        if (!active) return;
+        setWards(rows || []);
+        if (initialArea?.id) {
+          const match = (rows || []).find((ward) => ward.id === initialArea.id);
+          if (match) {
+            setSelectedWard(match);
+            setWardQuery(match.name);
+          }
+        }
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [initialArea?.id]);
+
+  const wardResults = useMemo(() => {
+    const query = wardQuery.toLowerCase().trim();
+    if (!query || selectedWard) return [];
+    return wards
+      .filter(
+        (ward) =>
+          ward.name.toLowerCase().includes(query) ||
+          (ward.zone || '').toLowerCase().includes(query) ||
+          (ward.circle || '').toLowerCase().includes(query)
+      )
+      .slice(0, 8);
+  }, [wardQuery, wards, selectedWard]);
+
+  const selectWard = (ward) => {
+    setSelectedWard(ward);
+    setWardQuery(ward.name);
+    if (!location.trim()) setLocation(ward.name);
+    if (errorMsg) setErrorMsg('');
+  };
+
+  const clearWard = () => {
+    setSelectedWard(null);
+    setWardQuery('');
+  };
+
+  const handleUseLocation = async () => {
+    setGpsBusy(true);
+    setErrorMsg('');
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setErrorMsg('Location permission is required to map the report to a GHMC ward.');
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      const { latitude, longitude } = position.coords;
+      setCoords({ lat: latitude, lon: longitude });
+      const lookup = await api.areaAt(latitude, longitude);
+      if (lookup.status === 'matched') {
+        setAreaLabel(lookup.area.name);
+        if (!location.trim()) setLocation(lookup.area.name);
+        const match = wards.find(
+          (ward) => ward.id === lookup.area.id || ward.name === lookup.area.name
+        );
+        if (match) selectWard(match);
+        else {
+          setSelectedWard({ id: lookup.area.id, name: lookup.area.name, zone: '', circle: '' });
+          setWardQuery(lookup.area.name);
+        }
+      } else if (lookup.status === 'ambiguous') {
+        setAreaLabel('Ward boundary — pick a nearby ward');
+      } else {
+        let nearest = [];
+        try {
+          nearest = await api.nearestAreas(latitude, longitude, 1);
+        } catch {
+          // Nearest-ward lookup is best effort.
+        }
+        setAreaLabel(
+          nearest[0]
+            ? `No GHMC ward matched (nearest ${nearest[0].area.name}, ~${Math.round(
+                nearest[0].distanceM
+              )} m)`
+            : 'No GHMC ward matched'
+        );
+      }
+    } catch (error) {
+      setErrorMsg(error.message || 'Could not read your location.');
+    } finally {
+      setGpsBusy(false);
+    }
+  };
 
   // Handle Photo Picker from Gallery
   const handlePickImage = async () => {
@@ -103,23 +219,14 @@ export const CreateIssueScreen = ({
     }
   };
 
-  // Quick fallback to use standard category photo as mock sample evidence
-  const handleUseSamplePhoto = () => {
-    const sampleImg = CATEGORY_IMAGES[activeCategory.id] || null;
-    setImageUri(sampleImg);
-  };
-
   const handleSelectQuickLocality = (loc) => {
     setLocation(loc);
   };
 
-  const handleSubmit = () => {
-    if (!title.trim()) {
-      setErrorMsg('Please enter an issue title.');
-      return;
-    }
+  const handleSubmit = async () => {
+    if (!requireAuth()) return;
     if (title.trim().length < 5) {
-      setErrorMsg('Title should be at least 5 characters.');
+      setErrorMsg('Please enter an issue title of at least 5 characters.');
       return;
     }
     if (!description.trim()) {
@@ -130,31 +237,40 @@ export const CreateIssueScreen = ({
       setErrorMsg('Please provide the area or location.');
       return;
     }
+    if (!coords) {
+      setErrorMsg('Tap "Use My Location" so the report can be mapped to a GHMC ward.');
+      return;
+    }
+    if (!selectedWard && !isInHyderabad(coords.lat, coords.lon)) {
+      setErrorMsg(
+        'Your GPS location is outside the automatic Hyderabad area. Select a ward manually to submit.'
+      );
+      return;
+    }
 
     setErrorMsg('');
     setIsSubmitting(true);
-
     try {
-      const created = addIssue({
+      const created = await createIssue({
         categoryId: activeCategory.id,
         title: title.trim(),
         description: description.trim(),
         location: location.trim(),
-        image: imageUri,
-        imageCaption: imageUri ? 'Citizen submitted evidence photograph' : null,
-        isAnonymous: isAnonymous,
-        author: isAnonymous ? 'Anonymous Citizen' : (user?.name || 'u/civic_citizen'),
+        lat: coords.lat,
+        lon: coords.lon,
+        areaId: selectedWard?.id,
+        imageUri,
+        isAnonymous,
       });
-
-      setIsSubmitting(false);
-      if (onSuccess) {
-        onSuccess(created.id);
-      } else if (onBack) {
-        onBack();
+      if (created?.imageUploadError) {
+        Alert.alert('Report published', `The report was saved, but the photo failed: ${created.imageUploadError}`);
       }
-    } catch (err) {
+      if (onSuccess) onSuccess(created);
+      else if (onBack) onBack();
+    } catch (error) {
+      setErrorMsg(error.message || 'Failed to submit issue. Please try again.');
+    } finally {
       setIsSubmitting(false);
-      setErrorMsg('Failed to submit issue. Please try again.');
     }
   };
 
@@ -280,6 +396,7 @@ export const CreateIssueScreen = ({
                   setLocation(txt);
                   if (errorMsg) setErrorMsg('');
                 }}
+                maxLength={255}
               />
             </View>
 
@@ -311,6 +428,89 @@ export const CreateIssueScreen = ({
                 </TouchableOpacity>
               ))}
             </ScrollView>
+
+            <TouchableOpacity
+              style={styles.gpsButton}
+              onPress={handleUseLocation}
+              disabled={gpsBusy}
+              activeOpacity={0.8}
+            >
+              {gpsBusy ? (
+                <ActivityIndicator size="small" color={COLORS.charcoal} />
+              ) : (
+                <Ionicons name="locate" size={18} color={COLORS.charcoal} />
+              )}
+              <View style={styles.gpsTextGroup}>
+                <Text style={styles.gpsButtonTitle}>
+                  {coords ? 'Location Captured' : 'Use My Location'}
+                </Text>
+                <Text style={styles.gpsButtonSub}>
+                  {coords
+                    ? `${areaLabel || 'Hyderabad'} · ${coords.lat.toFixed(5)}, ${coords.lon.toFixed(5)}`
+                    : 'Get coordinates and resolve the ward automatically'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <View style={styles.wardSearchBlock}>
+              <Text style={styles.fieldLabel}>WARD (MANUAL SELECTION)</Text>
+              <View style={styles.wardSearchRow}>
+                <Ionicons name="search-outline" size={16} color={COLORS.subtext} />
+                <TextInput
+                  style={styles.wardSearchInput}
+                  placeholder="Search GHMC ward name, zone, or circle..."
+                  placeholderTextColor="#94A3B8"
+                  value={wardQuery}
+                  onChangeText={(value) => {
+                    setWardQuery(value);
+                    if (selectedWard) setSelectedWard(null);
+                    if (errorMsg) setErrorMsg('');
+                  }}
+                  autoCorrect={false}
+                />
+                {!!selectedWard && (
+                  <TouchableOpacity onPress={clearWard} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Text style={styles.wardAutoText}>Auto</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {wardResults.length > 0 && (
+                <View style={styles.wardResultsList}>
+                  {wardResults.map((ward) => (
+                    <TouchableOpacity
+                      key={ward.id}
+                      style={styles.wardResultRow}
+                      onPress={() => selectWard(ward)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.wardResultName}>{ward.name}</Text>
+                      <Text style={styles.wardResultMeta}>
+                        {[ward.zone, ward.circle].filter(Boolean).join(' · ')}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {!!selectedWard && (
+                <View style={styles.selectedWardCard}>
+                  <Ionicons name="checkmark-circle" size={16} color={COLORS.brandGreen} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.selectedWardName}>{selectedWard.name}</Text>
+                    <Text style={styles.selectedWardMeta}>
+                      {[selectedWard.zone, selectedWard.circle].filter(Boolean).join(' · ') ||
+                        'Manual ward'}
+                    </Text>
+                  </View>
+                </View>
+              )}
+
+              <Text style={styles.wardHint}>
+                Optional. A manually selected ward overrides automatic detection and is marked
+                “manual”. Location coordinates are still taken from your GPS.
+              </Text>
+            </View>
           </View>
 
           {/* Field 4: Evidence Photo */}
@@ -353,17 +553,6 @@ export const CreateIssueScreen = ({
                 >
                   <Ionicons name="images" size={18} color={COLORS.charcoal} />
                   <Text style={styles.photoActionText}>Gallery</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.photoActionBtn}
-                  onPress={handleUseSamplePhoto}
-                  activeOpacity={0.75}
-                >
-                  <Ionicons name="document-attach" size={18} color={COLORS.brandGreen} />
-                  <Text style={[styles.photoActionText, { color: COLORS.brandGreen }]}>
-                    Sample Photo
-                  </Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -420,6 +609,108 @@ export const CreateIssueScreen = ({
 };
 
 const styles = StyleSheet.create({
+  wardSearchBlock: {
+    marginTop: 14,
+  },
+  wardSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    backgroundColor: '#FFFFFF',
+  },
+  wardSearchInput: {
+    flex: 1,
+    fontSize: 13,
+    color: COLORS.charcoal,
+    padding: 0,
+  },
+  wardAutoText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.brandGreen,
+  },
+  wardResultsList: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+  },
+  wardResultRow: {
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#F1F5F9',
+  },
+  wardResultName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.charcoal,
+  },
+  wardResultMeta: {
+    fontSize: 11,
+    color: COLORS.subtext,
+    marginTop: 1,
+  },
+  selectedWardCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  selectedWardName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#14532D',
+  },
+  selectedWardMeta: {
+    fontSize: 11,
+    color: '#166534',
+    marginTop: 1,
+  },
+  wardHint: {
+    fontSize: 10.5,
+    color: COLORS.subtext,
+    lineHeight: 15,
+    marginTop: 6,
+  },
+  gpsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#F8FAFC',
+  },
+  gpsTextGroup: {
+    flex: 1,
+  },
+  gpsButtonTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.charcoal,
+  },
+  gpsButtonSub: {
+    fontSize: 11,
+    color: COLORS.subtext,
+    marginTop: 1,
+  },
   keyboardContainer: {
     flex: 1,
   },

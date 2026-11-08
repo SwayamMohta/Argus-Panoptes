@@ -12,13 +12,13 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/colors';
-import { MUNICIPAL_NOTICES } from '../../constants/municipalNotices';
 import { MunicipalNoticeCard } from './MunicipalNoticeCard';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export const NoticesNotificationModal = ({
   visible,
+  notices = [],
   selectedLocality,
   onClose,
   onSelectNotice,
@@ -50,9 +50,9 @@ export const NoticesNotificationModal = ({
     });
   };
 
-  const filteredNotices = MUNICIPAL_NOTICES.filter((n) => {
+  const filteredNotices = notices.filter((notice) => {
     if (filter === 'all') return true;
-    return n.category === filter;
+    return notice.category === filter;
   });
 
   return (

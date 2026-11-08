@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { StyleSheet, ScrollView } from 'react-native';
+import { StyleSheet, ScrollView, View, ActivityIndicator } from 'react-native';
+import { COLORS } from '../constants/colors';
 import { useAuth } from '../context/AuthContext';
 import { ProfileBanner } from '../components/profile/ProfileBanner';
 import { ProfileHeader } from '../components/profile/ProfileHeader';
@@ -22,6 +23,14 @@ export const ProfileScreen = () => {
 
   if (!isLoggedIn) {
     return <GuestProfileScreen />;
+  }
+
+  if (!user) {
+    return (
+      <View style={styles.loadingWrap}>
+        <ActivityIndicator size="large" color={COLORS.brandGreen} />
+      </View>
+    );
   }
 
   // Full-page subnavigation for Settings
@@ -91,6 +100,12 @@ export const ProfileScreen = () => {
 };
 
 const styles = StyleSheet.create({
+  loadingWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingBottom: 110,
+  },
   profileScrollView: {
     flex: 1,
   },

@@ -1,0 +1,83 @@
+{
+  "source": "C:\\Users\\Administrator\\Desktop\\Argus\\Argus-Panoptes\\wards_hyderabad.geojson",
+  "features_in_file": 145,
+  "areas_imported": 145,
+  "unique_ward_names": 145,
+  "empty_names": 0,
+  "duplicate_name_groups": {},
+  "geometry_types_in_file": {
+    "Polygon": 140,
+    "MultiPolygon": 5
+  },
+  "invalid_geometries_in_source": 0,
+  "bbox": [
+    78.2717512,
+    17.2916377,
+    78.6212303,
+    17.5608321
+  ],
+  "recognizable_names": {
+    "Kukatpally": [
+      "Ward 121 Kukatpally"
+    ],
+    "Madhapur": [
+      "Ward 107 Madhapur"
+    ],
+    "Banjara Hills": [
+      "Ward 93 Banjara Hills"
+    ],
+    "Gachibowli": [
+      "Ward 105 Gachibowli"
+    ],
+    "Secunderabad": [],
+    "HITEC City": [],
+    "Tolichowki": [
+      "Ward 68 Tolichowki"
+    ],
+    "Dilsukhnagar": []
+  },
+  "sample_point_in_polygon": [
+    {
+      "name": "Ward 100 Sanath Nagar",
+      "covering_polygons": 1
+    },
+    {
+      "name": "Ward 101 Erragadda",
+      "covering_polygons": 1
+    },
+    {
+      "name": "Ward 102 Rahmath Nagar",
+      "covering_polygons": 1
+    },
+    {
+      "name": "Ward 103 Borabanda",
+      "covering_polygons": 1
+    },
+    {
+      "name": "Ward 104 Kondapur",
+      "covering_polygons": 1
+    },
+    {
+      "name": "Ward 105 Gachibowli",
+      "covering_polygons": 1
+    },
+    {
+      "name": "Ward 106 Serilingampally",
+      "covering_polygons": 1
+    },
+    {
+      "name": "Ward 107 Madhapur",
+      "covering_polygons": 1
+    },
+    {
+      "name": "Ward 108 Miyapur",
+      "covering_polygons": 1
+    },
+    {
+      "name": "Ward 109 Hafeezpet",
+      "covering_polygons": 1
+    }
+  ],
+  "attribution": "\u00a9 OpenStreetMap contributors (ODbL 1.0)",
+  "vintage_note": "OSM feature timestamps in the file are 2017-12-31."
+}

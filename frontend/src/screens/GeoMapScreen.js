@@ -14,9 +14,17 @@ import {
   LayoutAnimation,
   UIManager,
   PanResponder,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Svg, { G, Path } from 'react-native-svg';
+import * as Location from 'expo-location';
 import { COLORS } from '../constants/colors';
+import { MAP_ATTRIBUTION, MAP_TILE_URLS, tileUri } from '../constants/mapTiles';
+import { api } from '../lib/api';
+import { timeAgo } from '../lib/format';
+import { IssueDetailScreen } from './IssueDetailScreen';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -38,30 +46,130 @@ const lat2tile = (lat, zoom) => {
   return ((1 - Math.log(Math.tan(clampedLat) + 1 / Math.cos(clampedLat)) / Math.PI) / 2) * Math.pow(2, zoom);
 };
 
-// Component for rendering an individual OpenStreetMap dynamic tile with fast fallbacks
-const DynamicOsmTile = React.memo(({ z, x, y, left, top, size }) => {
+const API_BASE_URL = (process.env.EXPO_PUBLIC_API_URL || '').replace(/\/$/, '');
+const BOUNDARY_ZOOM = 12;
+
+const haversineKm = (from, lat, lon) => {
+  if (!from || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const toRad = (value) => (value * Math.PI) / 180;
+  const dLat = toRad(lat - from.lat);
+  const dLon = toRad(lon - from.lon);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(from.lat)) * Math.cos(toRad(lat)) * Math.sin(dLon / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+};
+
+const SECTOR_BY_CATEGORY = {
+  roads: 'Roads & Works',
+  transit: 'Public Transit & Stops',
+  health: 'Healthcare & Clinics',
+  ration: 'PDS & Food Security',
+  water: 'Water Works & Supply',
+  sanitation: 'Sanitation & Waste',
+  power: 'Power Grid & Electrical',
+  drainage: 'Storm Drainage',
+};
+
+const normalizeWardName = (name) => {
+  const stripped = (name || '').replace(/^\d+\s*-\s*/, '');
+  return stripped
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+const featureToWard = (feature) => {
+  const properties = feature.properties || {};
+  const rawName = properties.name || 'Ward';
+  const numberMatch = rawName.match(/^(\d+)\s*-\s*/);
+  const center = properties.center || {};
+  return {
+    id: properties.id,
+    name: normalizeWardName(rawName),
+    fullName: rawName,
+    wardNumber: numberMatch ? numberMatch[1] : '',
+    zone: properties.zone || 'Hyderabad',
+    circle: properties.circle || '',
+    distance: '',
+    distanceKm: null,
+    coverage: null,
+    healthScore: null,
+    openFlags: properties.openIssueCount || 0,
+    badgeText: '',
+    coordinates: Number.isFinite(center.lat)
+      ? `${center.lat.toFixed(4)}° N, ${center.lon.toFixed(4)}° E`
+      : '',
+    lat: center.lat,
+    lon: center.lon,
+    assets: [],
+    boundary: feature.geometry,
+  };
+};
+
+const geometryPolygons = (geometry) => {
+  if (!geometry) return [];
+  if (geometry.type === 'Polygon') return [geometry.coordinates];
+  if (geometry.type === 'MultiPolygon') return geometry.coordinates;
+  return [];
+};
+
+// Fixed tile-pixel path at BOUNDARY_ZOOM; the map pan/zoom is applied as an SVG transform.
+const boundaryToPath = (geometry) => {
+  const parts = [];
+  for (const polygon of geometryPolygons(geometry)) {
+    for (const ring of polygon) {
+      if (!ring || ring.length < 3) continue;
+      ring.forEach(([lon, lat], index) => {
+        const x = lon2tile(lon, BOUNDARY_ZOOM) * TILE_SIZE;
+        const y = lat2tile(lat, BOUNDARY_ZOOM) * TILE_SIZE;
+        parts.push(`${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`);
+      });
+      parts.push('Z');
+    }
+  }
+  return parts.join(' ');
+};
+
+// Screen-space path for the fixed-zoom mini map.
+const boundaryToScreenPath = (geometry, centerLat, centerLon, zoom, width, height) => {
+  const centerX = lon2tile(centerLon, zoom);
+  const centerY = lat2tile(centerLat, zoom);
+  const parts = [];
+  for (const polygon of geometryPolygons(geometry)) {
+    for (const ring of polygon) {
+      if (!ring || ring.length < 3) continue;
+      ring.forEach(([lon, lat], index) => {
+        const x = width / 2 + (lon2tile(lon, zoom) - centerX) * TILE_SIZE;
+        const y = height / 2 + (lat2tile(lat, zoom) - centerY) * TILE_SIZE;
+        parts.push(`${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`);
+      });
+      parts.push('Z');
+    }
+  }
+  return parts.join(' ');
+};
+
+// Renders one raster map tile from the configured provider.
+const DynamicMapTile = React.memo(({ z, x, y, left, top, size }) => {
   const [useFallback, setUseFallback] = useState(0);
 
   const maxTile = Math.pow(2, z);
   const wrappedX = ((x % maxTile) + maxTile) % maxTile;
 
-  if (y < 0 || y >= maxTile) {
+  if (y < 0 || y >= maxTile || MAP_TILE_URLS.length === 0) {
     return null;
   }
 
-  const tileUrls = [
-    `https://tile.openstreetmap.org/${z}/${wrappedX}/${y}.png`,
-    `https://a.tile.openstreetmap.fr/hot/${z}/${wrappedX}/${y}.png`,
-    `https://b.tile.openstreetmap.fr/hot/${z}/${wrappedX}/${y}.png`,
-  ];
-  const currentUri = tileUrls[Math.min(useFallback, tileUrls.length - 1)];
+  const currentUri = tileUri(
+    MAP_TILE_URLS[Math.min(useFallback, MAP_TILE_URLS.length - 1)],
+    z,
+    wrappedX,
+    y
+  );
 
   return (
     <Image
-      source={{
-        uri: currentUri,
-        headers: { 'User-Agent': 'ArgusPanoptesCivicApp/2.0' },
-      }}
+      source={{ uri: currentUri }}
       style={{
         position: 'absolute',
         left: Math.round(left),
@@ -121,7 +229,7 @@ const RealMiniMapPreview = React.memo(({ ward }) => {
       {/* Real OpenStreetMap Dynamic Slippy Tiles */}
       <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
         {tiles.map((tile) => (
-          <DynamicOsmTile
+          <DynamicMapTile
             key={tile.id}
             z={tile.z}
             x={tile.x}
@@ -132,6 +240,31 @@ const RealMiniMapPreview = React.memo(({ ward }) => {
           />
         ))}
       </View>
+
+      {/* Selected GHMC ward boundary */}
+      {ward.boundary && (
+        <Svg
+          width={PREVIEW_WIDTH}
+          height={PREVIEW_HEIGHT}
+          style={StyleSheet.absoluteFillObject}
+          pointerEvents="none"
+        >
+          <Path
+            d={boundaryToScreenPath(
+              ward.boundary,
+              ward.lat,
+              ward.lon,
+              z,
+              PREVIEW_WIDTH,
+              PREVIEW_HEIGHT
+            )}
+            fill="rgba(22, 163, 74, 0.18)"
+            stroke="#15803D"
+            strokeWidth={1.5}
+            fillRule="evenodd"
+          />
+        </Svg>
+      )}
 
       {/* Geotag Marker Pin in Center with Pulse */}
       <View style={styles.miniMapCenterPin} pointerEvents="none">
@@ -154,12 +287,13 @@ export const FILTER_SORT_OPTIONS = [
 
 export const FILTER_SECTOR_OPTIONS = [
   { id: 'Roads & Works', label: 'Roads' },
-  { id: 'Power Grid', label: 'Power' },
-  { id: 'Sanitation', label: 'Sanitation' },
-  { id: 'Drainage', label: 'Drainage' },
-  { id: 'Water Works', label: 'Water' },
-  { id: 'Healthcare', label: 'Health' },
-  { id: 'Food & PDS', label: 'PDS' },
+  { id: 'Power Grid & Electrical', label: 'Power' },
+  { id: 'Sanitation & Waste', label: 'Sanitation' },
+  { id: 'Storm Drainage', label: 'Drainage' },
+  { id: 'Water Works & Supply', label: 'Water' },
+  { id: 'Healthcare & Clinics', label: 'Health' },
+  { id: 'PDS & Food Security', label: 'PDS' },
+  { id: 'Public Transit & Stops', label: 'Transit' },
 ];
 
 export const FILTER_SEVERITY_OPTIONS = [
@@ -176,11 +310,8 @@ export const FILTER_STATUS_OPTIONS = [
 ];
 
 export const WARD_FILTER_SORT_OPTIONS = [
-  { id: 'distance', label: 'Nearest First', subtitle: 'Closest distance to you' },
-  { id: 'flags_high', label: 'Most Flags', subtitle: 'Wards with highest open civic flags' },
-  { id: 'health_low', label: 'Critical Health', subtitle: 'Lowest infrastructure score first' },
-  { id: 'health_high', label: 'Top Health', subtitle: 'Highest civic compliance score' },
-  { id: 'coverage', label: 'Audit Coverage', subtitle: 'Highest audited area coverage' },
+  { id: 'distance', label: 'Nearest First', subtitle: 'Use the locate button to enable distance' },
+  { id: 'flags_high', label: 'Most Open Issues', subtitle: 'Wards with the most unresolved reports' },
   { id: 'name', label: 'Ward Name (A-Z)', subtitle: 'Alphabetical order' },
 ];
 
@@ -198,11 +329,17 @@ export const WARD_FILTER_DISTANCE_OPTIONS = [
 ];
 
 export const WARD_FILTER_ZONE_OPTIONS = [
-  { id: 'East Zone', label: 'East Zone', subtitle: 'Indiranagar, Domlur' },
-  { id: 'South Zone', label: 'South Zone', subtitle: 'Koramangala, HSR Layout' },
-  { id: 'Mahadevapura', label: 'Mahadevapura', subtitle: 'Bellandur & Tech Corridor' },
-  { id: 'New Delhi', label: 'Central Delhi', subtitle: 'Connaught Place & Lutyens' },
-  { id: 'South Mumbai', label: 'South Mumbai', subtitle: 'Nariman Point & Coastal' },
+  { id: 'KUKATPALLY ZONE', label: 'Kukatpally Zone', subtitle: '22 GHMC wards' },
+  { id: 'SECUNDERABAD ZONE', label: 'Secunderabad Zone', subtitle: '27 GHMC wards' },
+  { id: 'SERILINGAMPALLY ZONE', label: 'Serilingampally Zone', subtitle: '15 GHMC wards' },
+  { id: 'L.B.NAGAR ZONE', label: 'L.B. Nagar Zone', subtitle: '23 GHMC wards' },
+  { id: 'CHARMINAR ZONE', label: 'Charminar Zone', subtitle: '36 GHMC wards' },
+  { id: 'KHAIRATHABAD ZONE', label: 'Khairathabad Zone', subtitle: '27 GHMC wards' },
+  { id: 'CANTONMENT AREA', label: 'Cantonment Area', subtitle: '1 ward' },
+  { id: 'GRAMPANCHAYAT PEERZADIGUDA', label: 'Peerzadiguda GP', subtitle: '1 ward' },
+  { id: 'KALAVANCHA GRAMPANCHAYATH', label: 'Kalavancha GP', subtitle: '1 ward' },
+  { id: 'OU', label: 'Osmania University', subtitle: '1 ward' },
+  { id: 'BANDLAGUDA', label: 'Bandlaguda', subtitle: '1 ward' },
 ];
 
 export const WARD_FILTER_SECTOR_OPTIONS = [
@@ -215,464 +352,17 @@ export const WARD_FILTER_SECTOR_OPTIONS = [
   { id: 'Food & PDS', label: 'Fair Price / PDS', icon: 'basket-outline' },
 ];
 
-// =========================================================================
-// REALISTIC CIVIC AUDIT DATA FOR SURROUNDING WARDS & AUDITED PROBLEMS
-// =========================================================================
-const SURROUNDING_WARDS = [
-  {
-    id: 'ward-44',
-    name: 'Indiranagar',
-    wardNumber: '44',
-    zone: 'East Zone • Bengaluru',
-    distance: '0.8 km away',
-    coverage: '94%',
-    healthScore: 88,
-    openFlags: 2,
-    badgeText: 'Active Civic Audit • High Priority',
-    coordinates: '12.9716° N, 77.6412° E',
-    lat: 12.9716,
-    lon: 77.6412,
-    assets: [
-      {
-        id: 'ast-1',
-        title: 'Stormwater Drain Siltation & Cable Blockage',
-        problemSummary: 'Secondary stormwater culvert choked with silt and unauthorized fiber cables.',
-        sector: 'Drainage',
-        sectorIcon: 'water-outline',
-        severity: 'Critical Defect',
-        severityColor: '#DC2626',
-        status: 'Action Required',
-        statusColor: '#DC2626',
-        imageUri: 'https://images.unsplash.com/photo-1541888946425-d0fbb18f15f6?w=300&auto=format&fit=crop&q=80',
-        address: '12th Main, HAL 2nd Stage (Near BDA Complex)',
-        coordinates: '12.9695° N, 77.6390° E',
-        lat: 12.9695,
-        lon: 77.6390,
-        auditedBy: 'Er. S. Rao, BBMP Works Div',
-        lastAudit: 'Today, 11:30 AM',
-        notes: 'Culvert flow capacity reduced by ~70% due to plastic waste silt and illegal fiber ducting. High risk of road waterlogging during upcoming rains.',
-        actionRequired: 'Issue contractor directive for desilting and remove encroaching cables within 48h.',
-        sla: '48h SLA',
-      },
-      {
-        id: 'ast-2',
-        title: 'Pothole Crater & Road Subsidence',
-        problemSummary: '1.2m wide pavement subsidence causing traffic slowdown and two-wheeler hazard.',
-        sector: 'Roads & Works',
-        sectorIcon: 'car-outline',
-        severity: 'High Severity',
-        severityColor: '#EA580C',
-        status: 'Action Required',
-        statusColor: '#DC2626',
-        imageUri: 'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?w=300&auto=format&fit=crop&q=80',
-        address: '100ft Road & 4th Cross Intersection',
-        coordinates: '12.9740° N, 77.6430° E',
-        lat: 12.9740,
-        lon: 77.6430,
-        auditedBy: 'Nodal Inspector K. Gowda',
-        lastAudit: 'Yesterday, 04:15 PM',
-        notes: 'Asphalt top layer sheared off after water pipe repair. Requires base compaction and bitumen resurfacing.',
-        actionRequired: 'Temporary cold-mix patching scheduled; full overlay sanctioned.',
-        sla: '24h SLA',
-      },
-      {
-        id: 'ast-3',
-        title: 'Urban Primary Health Clinic',
-        problemSummary: 'Vaccine cold chain storage operational; entrance ramp handrail needs repair.',
-        sector: 'Healthcare',
-        sectorIcon: 'medical-outline',
-        severity: 'Moderate',
-        severityColor: '#F59E0B',
-        status: 'Needs Review',
-        statusColor: '#D97706',
-        imageUri: 'https://images.unsplash.com/photo-1586773860418-d37222d8fce3?w=300&auto=format&fit=crop&q=80',
-        address: '80ft Road, 4th Cross, Indiranagar',
-        coordinates: '12.9752° N, 77.6425° E',
-        lat: 12.9752,
-        lon: 77.6425,
-        auditedBy: 'Dr. V. Shastry, Health Officer',
-        lastAudit: 'Yesterday, 02:00 PM',
-        notes: 'Vaccine storage temperature maintained at +3.8°C. Ramp accessibility railing loose at entrance step 3.',
-        actionRequired: 'Weld handrail support bracket.',
-        sla: '5 Days',
-      },
-      {
-        id: 'ast-4',
-        title: 'PDS Ration Distribution Center #12',
-        problemSummary: 'Electronic PoS biometric terminal verified with physical grain stock.',
-        sector: 'Food & PDS',
-        sectorIcon: 'basket-outline',
-        severity: 'Compliant',
-        severityColor: '#16A34A',
-        status: 'Verified',
-        statusColor: '#16A34A',
-        imageUri: 'https://images.unsplash.com/photo-1583258292688-d0213dc5a3a8?w=300&auto=format&fit=crop&q=80',
-        address: '100ft Road, Near BDA Complex',
-        coordinates: '12.9721° N, 77.6405° E',
-        lat: 12.9721,
-        lon: 77.6405,
-        auditedBy: 'Inspector T. Narayanan',
-        lastAudit: 'Today, 09:30 AM',
-        notes: 'Grain stock verified with biometric point-of-sale active. Electronic weighing scales calibrated.',
-        actionRequired: 'No immediate action required.',
-        sla: 'Compliant',
-      },
-      {
-        id: 'ast-5',
-        title: 'Solid Waste Aggregation Point #04',
-        problemSummary: 'Secondary compactor operational; daily wet/dry segregation verified.',
-        sector: 'Sanitation',
-        sectorIcon: 'trash-outline',
-        severity: 'Compliant',
-        severityColor: '#16A34A',
-        status: 'Verified',
-        statusColor: '#16A34A',
-        imageUri: 'https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?w=300&auto=format&fit=crop&q=80',
-        address: '6th Main, Defense Colony',
-        coordinates: '12.9710° N, 77.6450° E',
-        lat: 12.9710,
-        lon: 77.6450,
-        auditedBy: 'SWM Supervisor M. Anthony',
-        lastAudit: '2 days ago',
-        notes: 'Wet/Dry segregation compliant; daily clearance on schedule to compost facility.',
-        actionRequired: 'Maintain daily manifest logging.',
-        sla: 'Compliant',
-      },
-      {
-        id: 'ast-6',
-        title: 'BESCOM Transformer Enclosure',
-        problemSummary: 'Vegetation overgrowth near 11kV distribution feeder lines.',
-        sector: 'Power Grid',
-        sectorIcon: 'flash-outline',
-        severity: 'Moderate',
-        severityColor: '#F59E0B',
-        status: 'Needs Review',
-        statusColor: '#D97706',
-        imageUri: 'https://images.unsplash.com/photo-1473341304170-971dccb5ac1e?w=300&auto=format&fit=crop&q=80',
-        address: '9th Cross, HAL Stage 1',
-        coordinates: '12.9680° N, 77.6420° E',
-        lat: 12.9680,
-        lon: 77.6420,
-        auditedBy: 'BESCOM Sub-Div Engineer',
-        lastAudit: '3 days ago',
-        notes: 'Tree branches within 0.6m of primary 11kV drop-out fuse. Risk of flashover during high winds.',
-        actionRequired: 'Tree trimming unit scheduled for weekend maintenance shutdown.',
-        sla: '3 Days',
-      },
-    ],
-  },
-  {
-    id: 'ward-72',
-    name: 'Domlur',
-    wardNumber: '72',
-    zone: 'East Zone • Bengaluru',
-    distance: '1.9 km away',
-    coverage: '89%',
-    healthScore: 82,
-    openFlags: 3,
-    badgeText: 'Routine Audit • Mixed Commercial',
-    coordinates: '12.9609° N, 77.6387° E',
-    lat: 12.9609,
-    lon: 77.6387,
-    assets: [
-      {
-        id: 'ast-21',
-        title: 'Flyover Drainage Grate Choking',
-        problemSummary: 'Rainwater drain gratings covered by heavy plastic debris and construction runoff.',
-        sector: 'Drainage',
-        sectorIcon: 'water-outline',
-        severity: 'Critical Defect',
-        severityColor: '#DC2626',
-        status: 'Action Required',
-        statusColor: '#DC2626',
-        imageUri: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=300&auto=format&fit=crop&q=80',
-        address: 'Intermediate Ring Road Junction',
-        coordinates: '12.9590° N, 77.6370° E',
-        lat: 12.9590,
-        lon: 77.6370,
-        auditedBy: 'Er. P. Venkatesh, BBMP',
-        lastAudit: 'Today, 08:45 AM',
-        notes: 'Rainwater drain gratings covered by debris. Water stagnation observed during morning rains spanning 40m.',
-        actionRequired: 'Deploy jetting suction vehicle for immediate grating clearance.',
-        sla: '24h SLA',
-      },
-      {
-        id: 'ast-22',
-        title: 'Exposed Electrical Cable Trench',
-        problemSummary: 'Uncovered cable trench post fiber laying left without warning barricades.',
-        sector: 'Power Grid',
-        sectorIcon: 'flash-outline',
-        severity: 'High Severity',
-        severityColor: '#EA580C',
-        status: 'Action Required',
-        statusColor: '#DC2626',
-        imageUri: 'https://images.unsplash.com/photo-1504307651254-35680f356dfd?w=300&auto=format&fit=crop&q=80',
-        address: 'Domlur Inner Ring Road Footpath',
-        coordinates: '12.9625° N, 77.6398° E',
-        lat: 12.9625,
-        lon: 77.6398,
-        auditedBy: 'Field Officer S. Prabhu',
-        lastAudit: 'Yesterday, 03:20 PM',
-        notes: 'Trench depth 0.9m with exposed 415V cables near bus shelter.',
-        actionRequired: 'Immediate backfilling and concrete slab cover required.',
-        sla: '24h SLA',
-      },
-      {
-        id: 'ast-23',
-        title: 'Domlur Maternity Hospital',
-        problemSummary: 'Hospital facilities, oxygen backup, and staff attendance verified.',
-        sector: 'Healthcare',
-        sectorIcon: 'medical-outline',
-        severity: 'Compliant',
-        severityColor: '#16A34A',
-        status: 'Verified',
-        statusColor: '#16A34A',
-        imageUri: 'https://images.unsplash.com/photo-1519494026892-80bbd2d6fd0d?w=300&auto=format&fit=crop&q=80',
-        address: 'Old Airport Road, Domlur',
-        coordinates: '12.9615° N, 77.6395° E',
-        lat: 12.9615,
-        lon: 77.6395,
-        auditedBy: 'Dr. R. Meenakshi',
-        lastAudit: '2 days ago',
-        notes: 'Liquid medical oxygen tank level at 88%. Generator automated switchover operational.',
-        actionRequired: 'Compliant.',
-        sla: 'Compliant',
-      },
-    ],
-  },
-  {
-    id: 'ward-88',
-    name: 'Koramangala',
-    wardNumber: '88',
-    zone: 'South Zone • Bengaluru',
-    distance: '3.4 km away',
-    coverage: '96%',
-    healthScore: 91,
-    openFlags: 1,
-    badgeText: 'Active Civic Audit • High Coverage',
-    coordinates: '12.9352° N, 77.6245° E',
-    lat: 12.9352,
-    lon: 77.6245,
-    assets: [
-      {
-        id: 'ast-31',
-        title: 'Broken Footpath Paver Slabs',
-        problemSummary: 'Pedestrian footpath damaged over 65 meters with missing storm-drain slab covers.',
-        sector: 'Roads & Works',
-        sectorIcon: 'footsteps-outline',
-        severity: 'Moderate',
-        severityColor: '#F59E0B',
-        status: 'Needs Review',
-        statusColor: '#D97706',
-        imageUri: 'https://images.unsplash.com/photo-1590674899484-d5640e854abe?w=300&auto=format&fit=crop&q=80',
-        address: '80ft Road, 4th Block, Koramangala',
-        coordinates: '12.9360° N, 77.6250° E',
-        lat: 12.9360,
-        lon: 77.6250,
-        auditedBy: 'Er. N. Karthik, BBMP',
-        lastAudit: 'Today, 01:20 PM',
-        notes: 'Missing RCC cover slabs pose hazard for pedestrians and morning walkers.',
-        actionRequired: 'Pre-cast RCC slab replacement work order issued.',
-        sla: '48h SLA',
-      },
-      {
-        id: 'ast-32',
-        title: 'National Games Village Water Station',
-        problemSummary: 'Potable water residual chlorine and pressure telemetry logs verified.',
-        sector: 'Water Works',
-        sectorIcon: 'water-outline',
-        severity: 'Compliant',
-        severityColor: '#16A34A',
-        status: 'Verified',
-        statusColor: '#16A34A',
-        imageUri: 'https://images.unsplash.com/photo-1504711434969-e33886168f5c?w=300&auto=format&fit=crop&q=80',
-        address: 'Koramangala 6th Block (NGV)',
-        coordinates: '12.9340° N, 77.6230° E',
-        lat: 12.9340,
-        lon: 77.6230,
-        auditedBy: 'BWSSB QA Unit',
-        lastAudit: 'Yesterday, 10:00 AM',
-        notes: 'Chlorine residual tested at 0.4 ppm. Dual-grid pumps functioning without error.',
-        actionRequired: 'Compliant.',
-        sla: 'Compliant',
-      },
-    ],
-  },
-  {
-    id: 'ward-112',
-    name: 'HSR Layout',
-    wardNumber: '112',
-    zone: 'South Zone • Bengaluru',
-    distance: '4.8 km away',
-    coverage: '91%',
-    healthScore: 85,
-    openFlags: 2,
-    badgeText: 'Routine Audit • Residential Hub',
-    coordinates: '12.9121° N, 77.6446° E',
-    lat: 12.9121,
-    lon: 77.6446,
-    assets: [
-      {
-        id: 'ast-41',
-        title: 'Garbage Vulnerable Point (GVP)',
-        problemSummary: 'Illegal dumping of commercial packaging and green waste on 27th Main.',
-        sector: 'Sanitation',
-        sectorIcon: 'trash-outline',
-        severity: 'High Severity',
-        severityColor: '#EA580C',
-        status: 'Action Required',
-        statusColor: '#DC2626',
-        imageUri: 'https://images.unsplash.com/photo-1604187351574-c75ca79f5807?w=300&auto=format&fit=crop&q=80',
-        address: '27th Main, Sector 2, HSR',
-        coordinates: '12.9130° N, 77.6455° E',
-        lat: 12.9130,
-        lon: 77.6455,
-        auditedBy: 'SWM Health Inspector G. Ravi',
-        lastAudit: 'Today, 07:15 AM',
-        notes: 'Over 400kg mixed waste dumped. CCTV installation and continuous marshaling required.',
-        actionRequired: 'Deploy Bobcat loader for immediate clearance and install no-dumping signage.',
-        sla: '24h SLA',
-      },
-      {
-        id: 'ast-42',
-        title: 'HSR Dry Waste Collection Center',
-        problemSummary: 'Plastic bailing machinery and worker safety gear verified.',
-        sector: 'Sanitation',
-        sectorIcon: 'trash-outline',
-        severity: 'Compliant',
-        severityColor: '#16A34A',
-        status: 'Verified',
-        statusColor: '#16A34A',
-        imageUri: 'https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?w=300&auto=format&fit=crop&q=80',
-        address: '14th Main, Sector 7',
-        coordinates: '12.9110° N, 77.6430° E',
-        lat: 12.9110,
-        lon: 77.6430,
-        auditedBy: 'Hasiru Dala Auditor',
-        lastAudit: 'Yesterday, 02:30 PM',
-        notes: 'Plastic bailing machine operational; daily intake processed smoothly.',
-        actionRequired: 'Compliant.',
-        sla: 'Compliant',
-      },
-    ],
-  },
-  {
-    id: 'ward-150',
-    name: 'Bellandur',
-    wardNumber: '150',
-    zone: 'Mahadevapura Zone • Bengaluru',
-    distance: '6.2 km away',
-    coverage: '76%',
-    healthScore: 71,
-    openFlags: 4,
-    badgeText: 'High Priority • Lake Buffer Inspection',
-    coordinates: '12.9260° N, 77.6762° E',
-    lat: 12.9260,
-    lon: 77.6762,
-    assets: [
-      {
-        id: 'ast-51',
-        title: 'Bellandur Lake Inlet Sluice Gate Choking',
-        problemSummary: 'Untreated greywater bypass leaking into lake buffer zone near culvert.',
-        sector: 'Water Works',
-        sectorIcon: 'water-outline',
-        severity: 'Critical Defect',
-        severityColor: '#DC2626',
-        status: 'Action Required',
-        statusColor: '#DC2626',
-        imageUri: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=300&auto=format&fit=crop&q=80',
-        address: 'Kariyammana Agrahara Road',
-        coordinates: '12.9270° N, 77.6780° E',
-        lat: 12.9270,
-        lon: 77.6780,
-        auditedBy: 'BBMP Lakes Division',
-        lastAudit: 'Today, 08:30 AM',
-        notes: 'Dissolved oxygen sensors reading below threshold. Screen mesh blocked with weeds.',
-        actionRequired: 'Automated weed-harvester deployment and sewage pumping diversion.',
-        sla: '24h SLA',
-      },
-    ],
-  },
-  {
-    id: 'ward-delhi-01',
-    name: 'Connaught Place',
-    wardNumber: 'ND-01',
-    zone: 'New Delhi • Central Zone',
-    distance: 'National Hub',
-    coverage: '98%',
-    healthScore: 94,
-    openFlags: 1,
-    badgeText: 'National Capital Civic Grid',
-    coordinates: '28.6304° N, 77.2177° E',
-    lat: 28.6304,
-    lon: 77.2177,
-    assets: [
-      {
-        id: 'ast-nd-1',
-        title: 'Inner Circle Heritage Drainage Vault',
-        problemSummary: 'Automated submersible flood pump station operational.',
-        sector: 'Drainage',
-        sectorIcon: 'water-outline',
-        severity: 'Compliant',
-        severityColor: '#16A34A',
-        status: 'Verified',
-        statusColor: '#16A34A',
-        imageUri: 'https://images.unsplash.com/photo-1587474260584-136574528ed5?w=300&auto=format&fit=crop&q=80',
-        address: 'Radial Road 1, CP, New Delhi',
-        coordinates: '28.6310° N, 77.2180° E',
-        lat: 28.6310,
-        lon: 77.2180,
-        auditedBy: 'NDMC Civil Engg Dept',
-        lastAudit: 'Today, 10:00 AM',
-        notes: 'Heritage drainage inspection compliant. Telemetry synchronizing with NDMC Command Center.',
-        actionRequired: 'Compliant.',
-        sla: 'Compliant',
-      },
-    ],
-  },
-  {
-    id: 'ward-mum-01',
-    name: 'Nariman Point',
-    wardNumber: 'MC-01',
-    zone: 'South Mumbai • Zone A',
-    distance: 'Western Hub',
-    coverage: '95%',
-    healthScore: 92,
-    openFlags: 1,
-    badgeText: 'Coastal Infrastructure Audit',
-    coordinates: '18.9256° N, 72.8242° E',
-    lat: 18.9256,
-    lon: 72.8242,
-    assets: [
-      {
-        id: 'ast-mum-1',
-        title: 'Marine Drive Coastal Pump Station',
-        problemSummary: 'High-tide backflow prevention valves and flap gates active.',
-        sector: 'Water Works',
-        sectorIcon: 'water-outline',
-        severity: 'Compliant',
-        severityColor: '#16A34A',
-        status: 'Verified',
-        statusColor: '#16A34A',
-        imageUri: 'https://images.unsplash.com/photo-1570168007204-dfb528c6958f?w=300&auto=format&fit=crop&q=80',
-        address: 'Netaji Subhash Chandra Bose Rd',
-        coordinates: '18.9260° N, 72.8250° E',
-        lat: 18.9260,
-        lon: 72.8250,
-        auditedBy: 'BMC SWD Cell',
-        lastAudit: 'Today, 02:00 PM',
-        notes: 'Dual check-valves tested against 4.2m spring tide simulation without leakage.',
-        actionRequired: 'Compliant.',
-        sla: 'Compliant',
-      },
-    ],
-  },
-];
 
-export const GeoMapScreen = () => {
+export const GeoMapScreen = ({ initialArea = null, onAreaConsumed }) => {
   // Navigation / Selection State
   const [selectedArea, setSelectedArea] = useState(null);
-  const [highlightedWardId, setHighlightedWardId] = useState('ward-44');
+  const [areaAssets, setAreaAssets] = useState([]);
+  const [areaLoading, setAreaLoading] = useState(false);
+  const [categories, setCategories] = useState([]);
+  const [selectedIssueId, setSelectedIssueId] = useState(null);
+  const [userLocation, setUserLocation] = useState(null);
+  const initialHandledRef = useRef(false);
+  const [highlightedWardId, setHighlightedWardId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const DEFAULT_WARD_FILTERS = {
     sortBy: 'distance',
@@ -703,15 +393,145 @@ export const GeoMapScreen = () => {
   const [selectedAssetModal, setSelectedAssetModal] = useState(null);
 
   // Dynamic Map State: Center Coordinate & Zoom level
-  const [mapCenter, setMapCenter] = useState({ lat: 12.9716, lon: 77.6412 });
-  const [mapZoom, setMapZoom] = useState(14.5);
+  const [mapCenter, setMapCenter] = useState({ lat: 17.385, lon: 78.4867 });
+  const [mapZoom, setMapZoom] = useState(11);
+  const [wardFeatures, setWardFeatures] = useState([]);
+  const [wardLoadState, setWardLoadState] = useState('loading');
+
+  const wards = useMemo(
+    () =>
+      wardFeatures.map(featureToWard).map((ward) => {
+        const distanceKm = haversineKm(userLocation, ward.lat, ward.lon);
+        return distanceKm == null
+          ? ward
+          : {
+              ...ward,
+              distanceKm,
+              distance: `${distanceKm.toFixed(1)} km`,
+            };
+      }),
+    [wardFeatures, userLocation]
+  );
+  const zoneOptions = useMemo(() => {
+    const counts = {};
+    wards.forEach((ward) => {
+      if (ward.zone) counts[ward.zone] = (counts[ward.zone] || 0) + 1;
+    });
+    return Object.keys(counts)
+      .sort()
+      .map((zone) => ({
+        id: zone,
+        label: zone,
+        subtitle: `${counts[zone]} GHMC ward${counts[zone] === 1 ? '' : 's'}`,
+      }));
+  }, [wards]);
+  const wardPaths = useMemo(
+    () => Object.fromEntries(wards.map((ward) => [ward.id, boundaryToPath(ward.boundary)])),
+    [wards]
+  );
+
+  useEffect(() => {
+    if (__DEV__) console.log('[map] tile provider:', MAP_TILE_URLS[0]);
+    api
+      .categories()
+      .then((rows) => setCategories(rows || []))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!selectedArea?.id) {
+      setAreaAssets([]);
+      return undefined;
+    }
+    let active = true;
+    setAreaLoading(true);
+    api
+      .issues({ areaId: selectedArea.id, limit: 50, sortBy: 'new' })
+      .then((page) => {
+        if (!active) return;
+        setAreaAssets(
+          (page.items || []).map((issue) => {
+            const category = categories.find((item) => item.id === issue.categoryId);
+            return {
+              id: issue.id,
+              issueId: issue.id,
+              categoryId: issue.categoryId,
+              title: issue.title,
+              problemSummary: issue.description,
+              notes: issue.description,
+              sector: SECTOR_BY_CATEGORY[issue.categoryId] || category?.name || 'Civic',
+              sectorIcon: category?.icon || 'business-outline',
+              severity:
+                issue.status === 'resolved'
+                  ? 'Compliant'
+                  : issue.priority === 'safety_hazard'
+                    ? 'Critical Defect'
+                    : issue.priority === 'urgent'
+                      ? 'High Severity'
+                      : 'Moderate',
+              status:
+                issue.status === 'resolved'
+                  ? 'Verified'
+                  : issue.status === 'under_review'
+                    ? 'Needs Review'
+                    : 'Action Required',
+              rawStatus: issue.status,
+              statusLabel: issue.statusLabel,
+              address: issue.location,
+              coordinates: issue.area || selectedArea.name,
+              lastAudit: timeAgo(issue.createdAt),
+              auditedBy: issue.author,
+              actionRequired: issue.status === 'resolved' ? '' : 'Review the reported issue.',
+              upvotes: issue.upvotes,
+              confirmationsCount: issue.confirmationsCount,
+              imageUri: null,
+            };
+          })
+        );
+      })
+      .catch(() => {
+        if (active) setAreaAssets([]);
+      })
+      .finally(() => {
+        if (active) setAreaLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedArea?.id, categories, selectedArea?.name]);
+
+  useEffect(() => {
+    if (!API_BASE_URL) {
+      setWardLoadState('unconfigured');
+      return undefined;
+    }
+    let cancelled = false;
+    const loadWards = async () => {
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/api/v1/wards/boundaries?tolerance=0.0005`
+        );
+        if (!response.ok) throw new Error(`Ward API ${response.status}`);
+        const data = await response.json();
+        if (cancelled) return;
+        setWardFeatures(Array.isArray(data.features) ? data.features : []);
+        setWardLoadState('ready');
+      } catch (error) {
+        if (!cancelled) setWardLoadState('error');
+      }
+    };
+    loadWards();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // High performance gesture tracking refs
-  const centerRef = useRef({ lat: 12.9716, lon: 77.6412 });
-  const zoomRef = useRef(14.5);
-  const startCenterRef = useRef({ lat: 12.9716, lon: 77.6412 });
+  const centerRef = useRef({ lat: 17.385, lon: 78.4867 });
+  const zoomRef = useRef(11);
+  const startCenterRef = useRef({ lat: 17.385, lon: 78.4867 });
   const initialPinchDistRef = useRef(null);
-  const startPinchZoomRef = useRef(14.5);
+  const startPinchZoomRef = useRef(11);
   const lastTapRef = useRef(0);
   const animationFrameRef = useRef(null);
 
@@ -769,8 +589,8 @@ export const GeoMapScreen = () => {
     flyTo(centerRef.current.lat, centerRef.current.lon, nextZ);
   };
 
-  const handleViewAllIndia = () => {
-    flyTo(21.7679, 78.8718, 4.8);
+  const handleViewCity = () => {
+    flyTo(17.385, 78.4867, 10.8);
   };
 
   const centerMapOnWard = (ward) => {
@@ -779,9 +599,22 @@ export const GeoMapScreen = () => {
     flyTo(ward.lat, ward.lon, targetZoom);
   };
 
-  const handleRecenter = () => {
-    const currentWard = SURROUNDING_WARDS.find((w) => w.id === highlightedWardId) || SURROUNDING_WARDS[0];
-    centerMapOnWard(currentWard);
+  const handleRecenter = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Location Permission', 'Location is required to sort wards by distance.');
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const point = { lat: position.coords.latitude, lon: position.coords.longitude };
+      setUserLocation(point);
+      flyTo(point.lat, point.lon, 13);
+    } catch (error) {
+      Alert.alert('Location Unavailable', error.message || 'Could not read your location.');
+    }
   };
 
   // PanResponder for Main Map
@@ -865,6 +698,8 @@ export const GeoMapScreen = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setSelectedArea(area);
     setHighlightedWardId(area.id);
+    setAreaAssets([]);
+    setSelectedIssueId(null);
     const initialFilters = {
       sortBy: 'urgency',
       sectors: [],
@@ -880,6 +715,23 @@ export const GeoMapScreen = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setSelectedArea(null);
   };
+
+  // Home can deep-link the map to a specific ward.
+  useEffect(() => {
+    if (initialHandledRef.current || !initialArea || wards.length === 0) return;
+    const targetName = (initialArea.name || '').toUpperCase();
+    const match = wards.find(
+      (ward) =>
+        ward.id === initialArea.id ||
+        ward.fullName === initialArea.wardName ||
+        ward.name.toUpperCase() === targetName
+    );
+    if (match) {
+      initialHandledRef.current = true;
+      handleSelectArea(match);
+      onAreaConsumed?.();
+    }
+  }, [initialArea, wards]);
 
   const handleOpenWardFilterModal = () => {
     setDraftWardFilters({ ...appliedWardFilters });
@@ -955,7 +807,7 @@ export const GeoMapScreen = () => {
 
   // Dynamic preview match count inside Ward Filter Modal
   const draftWardMatchCount = useMemo(() => {
-    let list = SURROUNDING_WARDS.filter((ward) => {
+    let list = wards.filter((ward) => {
       if (draftWardFilters.riskLevels.length > 0) {
         const flags = ward.openFlags || 0;
         const matchesRisk = draftWardFilters.riskLevels.some((risk) => {
@@ -975,8 +827,7 @@ export const GeoMapScreen = () => {
 
       if (draftWardFilters.maxDistance !== 'any') {
         const maxDist = parseFloat(draftWardFilters.maxDistance);
-        const wardDistNum = parseFloat(ward.distance || 999);
-        if (isNaN(wardDistNum) || wardDistNum > maxDist) return false;
+        if (ward.distanceKm != null && ward.distanceKm > maxDist) return false;
       }
 
       if (draftWardFilters.sectors.length > 0) {
@@ -988,12 +839,12 @@ export const GeoMapScreen = () => {
       return true;
     });
     return list.length;
-  }, [draftWardFilters]);
+  }, [draftWardFilters, wards]);
 
   // Filtered wards for Discovery view
   const filteredWards = useMemo(() => {
     const query = (searchQuery || '').trim().toLowerCase();
-    let list = SURROUNDING_WARDS.filter((ward) => {
+    let list = wards.filter((ward) => {
       if (query) {
         const matchesName = (ward.name || '').toLowerCase().includes(query);
         const matchesNum = (ward.wardNumber || '').toLowerCase().includes(query);
@@ -1023,8 +874,7 @@ export const GeoMapScreen = () => {
 
       if (appliedWardFilters.maxDistance !== 'any') {
         const maxDist = parseFloat(appliedWardFilters.maxDistance);
-        const wardDistNum = parseFloat(ward.distance || 999);
-        if (isNaN(wardDistNum) || wardDistNum > maxDist) return false;
+        if (ward.distanceKm != null && ward.distanceKm > maxDist) return false;
       }
 
       if (appliedWardFilters.sectors.length > 0) {
@@ -1038,8 +888,11 @@ export const GeoMapScreen = () => {
 
     return list.sort((a, b) => {
       if (appliedWardFilters.sortBy === 'distance') {
-        const distA = parseFloat(a.distance || 999);
-        const distB = parseFloat(b.distance || 999);
+        const distA = a.distanceKm;
+        const distB = b.distanceKm;
+        if (distA == null && distB == null) return (a.name || '').localeCompare(b.name || '');
+        if (distA == null) return 1;
+        if (distB == null) return -1;
         return distA - distB;
       }
       if (appliedWardFilters.sortBy === 'flags_high') {
@@ -1061,7 +914,7 @@ export const GeoMapScreen = () => {
       }
       return 0;
     });
-  }, [searchQuery, appliedWardFilters]);
+  }, [searchQuery, appliedWardFilters, wards]);
 
   // Active applied filter count (excluding default urgency sort)
   const activeFiltersCount = useMemo(() => {
@@ -1076,7 +929,7 @@ export const GeoMapScreen = () => {
   // Filtered and sorted assets/problems in Selected Area view
   const currentAssets = useMemo(() => {
     if (!selectedArea) return [];
-    let list = [...(selectedArea.assets || [])];
+    let list = [...areaAssets];
 
     // 1. Sector/Category Filter
     if (appliedFilters.sectors.length > 0) {
@@ -1119,12 +972,12 @@ export const GeoMapScreen = () => {
       }
       return 0; // Default / Recent order
     });
-  }, [selectedArea, appliedFilters]);
+  }, [selectedArea, areaAssets, appliedFilters]);
 
   // Draft preview results count inside filter modal
   const draftPreviewCount = useMemo(() => {
     if (!selectedArea) return 0;
-    let list = [...(selectedArea.assets || [])];
+    let list = [...areaAssets];
     if (draftFilters.sectors.length > 0) {
       list = list.filter((a) => draftFilters.sectors.includes(a.sector));
     }
@@ -1135,7 +988,7 @@ export const GeoMapScreen = () => {
       list = list.filter((a) => draftFilters.statuses.includes(a.status));
     }
     return list.length;
-  }, [selectedArea, draftFilters]);
+  }, [selectedArea, areaAssets, draftFilters]);
 
   // Filter Modal Actions
   const handleOpenFilterModal = () => {
@@ -1235,6 +1088,26 @@ export const GeoMapScreen = () => {
   // =========================================================================
   // RENDER 1: 42% DYNAMIC REAL MAP ON TOP + 58% SURROUNDING AREAS LIST ON BOTTOM
   // =========================================================================
+  if (selectedIssueId) {
+    const asset = areaAssets.find((item) => item.issueId === selectedIssueId);
+    const category =
+      categories.find((item) => item.id === asset?.categoryId) || {
+        id: asset?.categoryId || 'civic',
+        name: 'Civic Issue',
+        shortName: 'Civic',
+        icon: 'alert-circle-outline',
+        color: COLORS.brandGreen,
+        checkpoints: [],
+      };
+    return (
+      <IssueDetailScreen
+        issueId={selectedIssueId}
+        category={category}
+        onBack={() => setSelectedIssueId(null)}
+      />
+    );
+  }
+
   if (!selectedArea) {
     const z = Math.min(Math.max(Math.floor(mapZoom), Math.floor(MIN_ZOOM)), Math.floor(MAX_ZOOM));
     const scale = Math.pow(2, mapZoom - z);
@@ -1243,6 +1116,9 @@ export const GeoMapScreen = () => {
     const centerTileY = lat2tile(mapCenter.lat, z);
     const halfW = SCREEN_WIDTH / 2;
     const halfH = MAP_HEIGHT / 2;
+    const overlayScale = Math.pow(2, mapZoom - BOUNDARY_ZOOM);
+    const overlayTx = halfW - lon2tile(mapCenter.lon, BOUNDARY_ZOOM) * TILE_SIZE * overlayScale;
+    const overlayTy = halfH - lat2tile(mapCenter.lat, BOUNDARY_ZOOM) * TILE_SIZE * overlayScale;
 
     return (
       <View style={styles.container}>
@@ -1250,7 +1126,7 @@ export const GeoMapScreen = () => {
         <View style={styles.topMapContainer} {...mapPanResponder.panHandlers}>
           <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
             {visibleTiles.map((tile) => (
-              <DynamicOsmTile
+              <DynamicMapTile
                 key={tile.id}
                 z={tile.z}
                 x={tile.x}
@@ -1262,8 +1138,39 @@ export const GeoMapScreen = () => {
             ))}
           </View>
 
+          {/* GHMC ward boundaries (155 wards) */}
+          {wards.length > 0 && (
+            <Svg
+              style={StyleSheet.absoluteFillObject}
+              width={SCREEN_WIDTH}
+              height={MAP_HEIGHT}
+              pointerEvents="none"
+            >
+              <G transform={`translate(${overlayTx} ${overlayTy}) scale(${overlayScale})`}>
+                {filteredWards.map((ward) => {
+                  const path = wardPaths[ward.id];
+                  if (!path) return null;
+                  const isSelected = highlightedWardId === ward.id;
+                  return (
+                    <Path
+                      key={`boundary-${ward.id}`}
+                      d={path}
+                      fill={isSelected ? 'rgba(22, 163, 74, 0.22)' : 'rgba(22, 163, 74, 0.06)'}
+                      stroke={isSelected ? '#15803D' : 'rgba(21, 128, 61, 0.45)'}
+                      strokeWidth={1.5}
+                      vectorEffect="non-scaling-stroke"
+                      fillRule="evenodd"
+                    />
+                  );
+                })}
+              </G>
+            </Svg>
+          )}
+
           {/* Markers on Discovery Map */}
           {filteredWards.map((ward) => {
+            const isSelected = highlightedWardId === ward.id;
+            if (!isSelected && filteredWards.length > 40) return null;
             const wardTileX = lon2tile(ward.lon, z);
             const wardTileY = lat2tile(ward.lat, z);
             const screenX = halfW + (wardTileX - centerTileX) * scaledTileSize;
@@ -1278,8 +1185,6 @@ export const GeoMapScreen = () => {
               return null;
             }
 
-            const isSelected = highlightedWardId === ward.id;
-
             return (
               <TouchableOpacity
                 key={ward.id}
@@ -1291,8 +1196,8 @@ export const GeoMapScreen = () => {
                   },
                 ]}
                 onPress={() => {
-                  setHighlightedWardId(ward.id);
                   centerMapOnWard(ward);
+                  handleSelectArea(ward);
                 }}
                 activeOpacity={0.8}
               >
@@ -1337,13 +1242,28 @@ export const GeoMapScreen = () => {
           })}
 
 
-          {/* Floating Top Left Controls (All India) */}
+          {wardLoadState !== 'ready' && (
+            <View style={styles.mapWardStatus} pointerEvents="none">
+              <Text style={styles.mapWardStatusText}>
+                {wardLoadState === 'loading' && 'Loading Hyderabad wards…'}
+                {wardLoadState === 'error' && 'Could not load Hyderabad wards from the API'}
+                {wardLoadState === 'unconfigured' &&
+                  'Set EXPO_PUBLIC_API_URL to load Hyderabad wards'}
+              </Text>
+            </View>
+          )}
+
+          <Text style={styles.mapAttribution} pointerEvents="none">
+            {MAP_ATTRIBUTION}
+          </Text>
+
+          {/* Floating Top Left Controls (Hyderabad) */}
           <View style={styles.mapFloatingTopLeft}>
             <TouchableOpacity
               style={styles.mapControlButton}
-              onPress={handleViewAllIndia}
+              onPress={handleViewCity}
               activeOpacity={0.7}
-              accessibilityLabel="View All India"
+              accessibilityLabel="View Hyderabad"
             >
               <Ionicons name="globe-outline" size={18} color={COLORS.charcoal} />
             </TouchableOpacity>
@@ -1397,6 +1317,12 @@ export const GeoMapScreen = () => {
                 onChangeText={setSearchQuery}
                 returnKeyType="search"
                 clearButtonMode="while-editing"
+                onSubmitEditing={() => {
+                  if (filteredWards.length) {
+                    centerMapOnWard(filteredWards[0]);
+                    handleSelectArea(filteredWards[0]);
+                  }
+                }}
               />
               {searchQuery.length > 0 && (
                 <TouchableOpacity
@@ -1530,7 +1456,9 @@ export const GeoMapScreen = () => {
                     </View>
                     <View style={styles.healthScorePill}>
                       <Ionicons name="shield-checkmark" size={13} color={COLORS.brandGreen} />
-                      <Text style={styles.healthScoreText}>{item.healthScore}%</Text>
+                      <Text style={styles.healthScoreText}>
+                        {item.healthScore == null ? '—' : `${item.healthScore}%`}
+                      </Text>
                     </View>
                   </View>
 
@@ -1539,7 +1467,7 @@ export const GeoMapScreen = () => {
                   <View style={styles.wardCardBottomRow}>
                     <View style={styles.wardMetaItem}>
                       <Ionicons name="location-outline" size={14} color={COLORS.subtext} />
-                      <Text style={styles.wardMetaText}>{item.distance}</Text>
+                      <Text style={styles.wardMetaText}>{item.distance || 'Hyderabad'}</Text>
                     </View>
 
                     <View style={styles.wardMetaItem}>
@@ -1636,11 +1564,6 @@ export const GeoMapScreen = () => {
                       id: 'zones',
                       label: 'Zones',
                       badgeCount: draftWardFilters.zones.length,
-                    },
-                    {
-                      id: 'sectors',
-                      label: 'Sectors',
-                      badgeCount: draftWardFilters.sectors.length,
                     },
                   ].map((tab) => {
                     const isActive = wardFilterActiveTab === tab.id;
@@ -1856,7 +1779,7 @@ export const GeoMapScreen = () => {
                           )}
                         </View>
                         <View style={styles.amazonOptionsList}>
-                          {WARD_FILTER_ZONE_OPTIONS.map((opt) => {
+                          {zoneOptions.map((opt) => {
                             const isChecked = draftWardFilters.zones.includes(opt.id);
                             return (
                               <TouchableOpacity
@@ -2019,17 +1942,19 @@ export const GeoMapScreen = () => {
           {/* LEFT COLUMN: Area Name & Clean Subtitles */}
           <View style={styles.sketchHeaderLeftCol}>
             <Text style={styles.sketchAreaTitle}>{selectedArea.name}</Text>
-            <Text style={styles.sketchWardSubtitle}>Ward {selectedArea.wardNumber} • {selectedArea.zone}</Text>
+            <Text style={styles.sketchWardSubtitle}>Ward {selectedArea.wardNumber || '—'} • {selectedArea.zone}</Text>
 
             {/* Quick Informative Badges */}
             <View style={styles.cleanStatsRow}>
               <View style={styles.cleanStatPill}>
                 <Ionicons name="shield-checkmark" size={13} color={COLORS.brandGreen} />
-                <Text style={styles.cleanStatText}>{selectedArea.healthScore}% Health</Text>
+                <Text style={styles.cleanStatText}>
+                  {selectedArea.healthScore == null ? '—' : `${selectedArea.healthScore}%`} Health
+                </Text>
               </View>
               <View style={styles.cleanStatPill}>
                 <Ionicons name="business-outline" size={13} color={COLORS.charcoal} />
-                <Text style={styles.cleanStatText}>{(selectedArea.assets || []).length} Monitored</Text>
+                <Text style={styles.cleanStatText}>{areaAssets.length} Reports</Text>
               </View>
             </View>
           </View>
@@ -2051,7 +1976,7 @@ export const GeoMapScreen = () => {
           <View style={styles.sketchListHeaderLeft}>
             <Ionicons name="shield-checkmark-outline" size={14} color={COLORS.brandGreen} />
             <Text style={styles.sketchListHeaderTitle} numberOfLines={1}>
-              AUDITED PROBLEMS ({currentAssets.length})
+              REPORTED ISSUES ({currentAssets.length})
             </Text>
           </View>
 
@@ -2138,8 +2063,12 @@ export const GeoMapScreen = () => {
           </View>
         )}
 
+        {areaLoading && (
+          <ActivityIndicator color={COLORS.brandGreen} style={{ marginVertical: 20 }} />
+        )}
+
         {/* Problem Cards List or Empty Filter View */}
-        {currentAssets.length === 0 ? (
+        {!areaLoading && currentAssets.length === 0 ? (
           <View style={styles.emptyFilterContainer}>
             <Ionicons name="filter-outline" size={32} color={COLORS.muted} />
             <Text style={styles.emptyFilterTitle}>No problems match your active filters</Text>
@@ -2149,7 +2078,7 @@ export const GeoMapScreen = () => {
               activeOpacity={0.75}
             >
               <Text style={styles.emptyFilterResetText}>
-                Reset All Filters ({selectedArea?.assets?.length || 0})
+                Reset All Filters ({areaAssets.length})
               </Text>
             </TouchableOpacity>
           </View>
@@ -2678,11 +2607,15 @@ export const GeoMapScreen = () => {
                 {/* Primary Action Button */}
                 <TouchableOpacity
                   style={styles.modalPrimaryButton}
-                  onPress={() => setSelectedAssetModal(null)}
+                  onPress={() => {
+                    const issueId = selectedAssetModal.issueId;
+                    setSelectedAssetModal(null);
+                    if (issueId) setSelectedIssueId(issueId);
+                  }}
                   activeOpacity={0.85}
                 >
-                  <Ionicons name="camera-outline" size={19} color={COLORS.white} />
-                  <Text style={styles.modalPrimaryButtonText}>Take Inspection Photo</Text>
+                  <Ionicons name="document-text-outline" size={19} color={COLORS.white} />
+                  <Text style={styles.modalPrimaryButtonText}>View Full Civic Report</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -2802,6 +2735,31 @@ const styles = StyleSheet.create({
   },
 
   /* Floating Map Overlays */
+  mapWardStatus: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 12,
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+  },
+  mapWardStatusText: {
+    fontSize: 11,
+    color: COLORS.charcoal,
+    textAlign: 'center',
+  },
+  mapAttribution: {
+    position: 'absolute',
+    left: 8,
+    bottom: 6,
+    fontSize: 9,
+    color: 'rgba(15, 23, 42, 0.65)',
+    backgroundColor: 'rgba(255, 255, 255, 0.65)',
+    paddingHorizontal: 4,
+    borderRadius: 3,
+  },
   mapFloatingTopLeft: {
     position: 'absolute',
     top: 14,

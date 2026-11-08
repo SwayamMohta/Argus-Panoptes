@@ -9,6 +9,7 @@ import {
   Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { MAP_ATTRIBUTION, MAP_TILE_URLS, tileUri } from '../../constants/mapTiles';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_HEIGHT = 175;
@@ -22,30 +23,27 @@ const lat2tile = (lat, zoom) => {
   return ((1 - Math.log(Math.tan(clampedLat) + 1 / Math.cos(clampedLat)) / Math.PI) / 2) * Math.pow(2, zoom);
 };
 
-// Component for rendering an individual OpenStreetMap dynamic tile with fast fallbacks
-const DynamicOsmTile = React.memo(({ z, x, y, left, top, size }) => {
+// Renders one raster map tile from the configured provider.
+const DynamicMapTile = React.memo(({ z, x, y, left, top, size }) => {
   const [useFallback, setUseFallback] = useState(0);
 
   const maxTile = Math.pow(2, z);
   const wrappedX = ((x % maxTile) + maxTile) % maxTile;
 
-  if (y < 0 || y >= maxTile) {
+  if (y < 0 || y >= maxTile || MAP_TILE_URLS.length === 0) {
     return null;
   }
 
-  const tileUrls = [
-    `https://tile.openstreetmap.org/${z}/${wrappedX}/${y}.png`,
-    `https://a.tile.openstreetmap.fr/hot/${z}/${wrappedX}/${y}.png`,
-    `https://b.tile.openstreetmap.fr/hot/${z}/${wrappedX}/${y}.png`,
-  ];
-  const currentUri = tileUrls[Math.min(useFallback, tileUrls.length - 1)];
+  const currentUri = tileUri(
+    MAP_TILE_URLS[Math.min(useFallback, MAP_TILE_URLS.length - 1)],
+    z,
+    wrappedX,
+    y
+  );
 
   return (
     <Image
-      source={{
-        uri: currentUri,
-        headers: { 'User-Agent': 'ArgusPanoptesCivicApp/2.0' },
-      }}
+      source={{ uri: currentUri }}
       style={{
         position: 'absolute',
         left: Math.round(left),
@@ -193,7 +191,7 @@ export const WardAtAGlance = ({ locality, issues = [], onNavigateToMap }) => {
         {/* Real OpenStreetMap Dynamic Slippy Tiles */}
         <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
           {tiles.map((tile) => (
-            <DynamicOsmTile
+            <DynamicMapTile
               key={tile.id}
               z={tile.z}
               x={tile.x}
@@ -204,6 +202,10 @@ export const WardAtAGlance = ({ locality, issues = [], onNavigateToMap }) => {
             />
           ))}
         </View>
+
+        <Text style={styles.mapAttribution} numberOfLines={1}>
+          {MAP_ATTRIBUTION}
+        </Text>
 
         {/* Subtle Map Contrast Mask */}
         <View style={styles.mapOverlayTint} pointerEvents="none" />
@@ -332,6 +334,16 @@ const styles = StyleSheet.create({
   mapOverlayTint: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(15, 23, 42, 0.04)',
+  },
+  mapAttribution: {
+    position: 'absolute',
+    left: 6,
+    bottom: 4,
+    fontSize: 7,
+    color: 'rgba(15, 23, 42, 0.6)',
+    backgroundColor: 'rgba(255, 255, 255, 0.6)',
+    paddingHorizontal: 3,
+    borderRadius: 2,
   },
 
   // Top Telemetry Badges

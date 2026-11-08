@@ -12,74 +12,71 @@ import {
   KeyboardAvoidingView,
   Dimensions,
   Animated,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LOCALITIES } from '../../constants/localities';
+import * as Location from 'expo-location';
+
+import { api } from '../../lib/api';
+import { adaptWard } from '../../lib/format';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Curated frequent/monitored civic wards
-const MONITORED_LOCALITIES = [
-  {
-    localityId: 'bahadurpally',
-    label: 'Bahadurpally',
-    tag: 'Ward 129',
-    icon: 'navigate-outline',
-    wardInfo: 'Ward 129 · Kukatpally Zone',
-    landmarks: 'Mahindra University, Gandi Maisamma, Jeedimetla',
-    activeReports: 3,
-  },
-  {
-    localityId: 'banjara_hills',
-    label: 'Banjara Hills',
-    tag: 'Ward 98',
-    icon: 'home-outline',
-    wardInfo: 'Ward 98 · Khairatabad Zone',
-    landmarks: 'Road No. 1, Road No. 12, Taj Krishna Junction',
-    activeReports: 5,
-  },
-  {
-    localityId: 'madhapur',
-    label: 'Madhapur',
-    tag: 'Ward 107',
-    icon: 'business-outline',
-    wardInfo: 'Ward 107 · Serilingampally Zone',
-    landmarks: 'Cyber Towers, 100ft Road, Inorbit Mall Corridor',
-    activeReports: 7,
-  },
-  {
-    localityId: 'gachibowli',
-    label: 'Gachibowli',
-    tag: 'Ward 105',
-    icon: 'location-outline',
-    wardInfo: 'Ward 105 · Serilingampally Zone',
-    landmarks: 'Financial District, Stadium Road, ORR Junction',
-    activeReports: 4,
-  },
+const POPULAR_WARDS = [
+  'BANJARA HILLS',
+  'MADHAPUR',
+  'KUKATPALLY',
+  'GACHIBOWLI',
+  'TOLICHOWKI',
+  'JUBILEE HILLS',
+  'BEGUMPET',
+  'SERILINGAMPALLY',
 ];
 
 export const LocalityPickerModal = ({
   visible,
   currentLocality,
+  wards = [],
   onSelectLocality,
+  onGpsResult,
   onClose,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [gpsBusy, setGpsBusy] = useState(false);
 
-  // Live filter across full administrative roster when searching
-  const searchResults = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
-    if (!q) return [];
-    return LOCALITIES.filter((loc) => {
-      return (
-        loc.name.toLowerCase().includes(q) ||
-        loc.ward.toLowerCase().includes(q) ||
-        loc.zone.toLowerCase().includes(q) ||
-        loc.circle.toLowerCase().includes(q) ||
-        (loc.landmarks && loc.landmarks.some((lm) => lm.toLowerCase().includes(q)))
-      );
+  const finish = (ward) => {
+    Keyboard.dismiss();
+    Animated.timing(slideAnim, {
+      toValue: SCREEN_HEIGHT * 0.5,
+      duration: 180,
+      useNativeDriver: true,
+    }).start(() => {
+      onSelectLocality(ward);
+      onClose();
     });
-  }, [searchQuery]);
+  };
+
+  const searchResults = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+    if (!query) return [];
+    return wards
+      .filter(
+        (ward) =>
+          ward.name.toLowerCase().includes(query) ||
+          String(ward.ward || '').includes(query) ||
+          (ward.zone || '').toLowerCase().includes(query) ||
+          (ward.circle || '').toLowerCase().includes(query)
+      )
+      .slice(0, 40);
+  }, [searchQuery, wards]);
+
+  const popularWards = useMemo(() => {
+    const matches = POPULAR_WARDS.flatMap((name) =>
+      wards.filter((ward) => ward.name.toUpperCase().includes(name))
+    );
+    return (matches.length ? matches : wards).slice(0, 8);
+  }, [wards]);
 
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT * 0.5)).current;
 
@@ -108,30 +105,59 @@ export const LocalityPickerModal = ({
     });
   };
 
-  const handleSelectById = (locId) => {
-    Keyboard.dismiss();
-    const found = LOCALITIES.find((l) => l.id === locId) || LOCALITIES[0];
-    Animated.timing(slideAnim, {
-      toValue: SCREEN_HEIGHT * 0.5,
-      duration: 180,
-      useNativeDriver: true,
-    }).start(() => {
-      onSelectLocality(found);
-      onClose();
-    });
-  };
-
-  const handleSelectCurrentGPS = () => {
-    Keyboard.dismiss();
-    const current = LOCALITIES.find((l) => l.id === 'bahadurpally') || currentLocality || LOCALITIES[0];
-    Animated.timing(slideAnim, {
-      toValue: SCREEN_HEIGHT * 0.5,
-      duration: 180,
-      useNativeDriver: true,
-    }).start(() => {
-      onSelectLocality(current);
-      onClose();
-    });
+  const handleSelectCurrentGPS = async () => {
+    setGpsBusy(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Location Permission', 'Location access is needed to find your ward.');
+        return;
+      }
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const lookup = await api.areaAt(position.coords.latitude, position.coords.longitude);
+      if (lookup.status === 'matched') {
+        onGpsResult?.(null);
+        const match =
+          wards.find((ward) => ward.id === lookup.area.id || ward.wardName === lookup.area.name) ||
+          adaptWard({
+            id: lookup.area.id,
+            name: lookup.area.name,
+            center: { lat: position.coords.latitude, lon: position.coords.longitude },
+          });
+        finish(match);
+      } else if (lookup.status === 'ambiguous') {
+        const message =
+          'Your location falls on a ward boundary. Pick a ward manually before submitting.';
+        onGpsResult?.(message);
+        Alert.alert('Ward Boundary', message);
+      } else {
+        let nearest = [];
+        try {
+          nearest = await api.nearestAreas(
+            position.coords.latitude,
+            position.coords.longitude,
+            1
+          );
+        } catch {
+          // Nearest-ward lookup is best effort.
+        }
+        const nearestText = nearest[0]
+          ? `Nearest ward: ${nearest[0].area.name} (~${Math.round(nearest[0].distanceM)} m).`
+          : '';
+        const filterText = currentLocality?.name
+          ? `The current filter remains ${currentLocality.name}.`
+          : '';
+        const message = `No GHMC ward matched your GPS. ${nearestText} ${filterText} You can still submit; the report will be marked unmatched.`;
+        onGpsResult?.(message);
+        Alert.alert('No GHMC Ward Matched', message);
+      }
+    } catch (error) {
+      Alert.alert('Location Unavailable', error.message || 'Could not read your location.');
+    } finally {
+      setGpsBusy(false);
+    }
   };
 
   const isSearching = searchQuery.trim().length > 0;
@@ -219,10 +245,7 @@ export const LocalityPickerModal = ({
                           <TouchableOpacity
                             key={item.id}
                             style={[styles.searchResultItem, isSelected && styles.itemSelected]}
-                            onPress={() => {
-                              onSelectLocality(item);
-                              onClose();
-                            }}
+                            onPress={() => finish(item)}
                             activeOpacity={0.7}
                           >
                             <View style={styles.itemIconBadge}>
@@ -230,16 +253,13 @@ export const LocalityPickerModal = ({
                             </View>
                             <View style={styles.searchResultTextGroup}>
                               <Text style={styles.searchResultName}>
-                                {item.name} · {item.ward}
+                                {item.name}
+                                {item.ward ? ` · Ward ${item.ward}` : ''}
                               </Text>
                               <Text style={styles.searchResultZone}>
-                                {item.zone} ({item.circle})
+                                {[item.zone, item.circle].filter(Boolean).join(' · ') ||
+                                  'Hyderabad'}
                               </Text>
-                              {item.landmarks && item.landmarks.length > 0 && (
-                                <Text style={styles.searchResultLandmarks} numberOfLines={1}>
-                                  {item.landmarks.slice(0, 3).join(', ')}
-                                </Text>
-                              )}
                             </View>
                             {isSelected ? (
                               <Ionicons name="checkmark-circle" size={20} color="#0F172A" />
@@ -272,48 +292,54 @@ export const LocalityPickerModal = ({
                       </View>
                       <View style={styles.gpsTextColumn}>
                         <Text style={styles.gpsTitle}>Use Current Location</Text>
-                        <Text style={styles.gpsSubtext}>Bahadurpally · Ward 129 (Within range)</Text>
+                        <Text style={styles.gpsSubtext}>
+                          {gpsBusy ? 'Detecting your GHMC ward…' : 'Find the ward around you'}
+                        </Text>
                       </View>
-                      <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+                      {gpsBusy ? (
+                        <ActivityIndicator size="small" color="#0F172A" />
+                      ) : (
+                        <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+                      )}
                     </TouchableOpacity>
 
                     {/* Section Heading */}
-                    <Text style={styles.sectionHeaderTitle}>Monitored Municipal Wards</Text>
+                    <Text style={styles.sectionHeaderTitle}>GHMC Wards</Text>
 
-                    {/* Monitored Locality Cards */}
-                    {MONITORED_LOCALITIES.map((item) => {
-                      const isSelected = currentLocality?.id === item.localityId;
+                    {popularWards.length === 0 && (
+                      <Text style={styles.emptySearchSubtitle}>Loading Hyderabad wards…</Text>
+                    )}
+
+                    {popularWards.map((item) => {
+                      const isSelected = currentLocality?.id === item.id;
                       return (
                         <TouchableOpacity
-                          key={item.localityId}
+                          key={item.id}
                           style={[styles.localityCard, isSelected && styles.itemSelected]}
-                          onPress={() => handleSelectById(item.localityId)}
+                          onPress={() => finish(item)}
                           activeOpacity={0.75}
                         >
-                          {/* Left Icon Badge */}
                           <View style={styles.cardIconBadge}>
-                            <Ionicons name={item.icon} size={20} color="#0F172A" />
-                            <Text style={styles.cardTagText}>{item.tag}</Text>
+                            <Ionicons name="location-outline" size={20} color="#0F172A" />
+                            <Text style={styles.cardTagText}>
+                              {item.ward ? `Ward ${item.ward}` : 'GHMC'}
+                            </Text>
                           </View>
 
-                          {/* Center Details */}
                           <View style={styles.cardCenter}>
-                            <Text style={styles.cardLabel}>{item.label}</Text>
-                            <Text style={styles.cardWardInfo}>{item.wardInfo}</Text>
-                            <Text style={styles.cardLandmarks} numberOfLines={1}>
-                              {item.landmarks}
+                            <Text style={styles.cardLabel}>{item.name}</Text>
+                            <Text style={styles.cardWardInfo}>
+                              {[item.zone, item.circle].filter(Boolean).join(' · ') ||
+                                'Hyderabad'}
                             </Text>
-
-                            {/* Civic surveillance status badge */}
                             <View style={styles.cardStatusRow}>
                               <View style={styles.statusDot} />
                               <Text style={styles.cardStatusText}>
-                                {item.activeReports} active civic reports in this division
+                                {isSelected ? 'Selected ward' : 'Tap to filter this ward'}
                               </Text>
                             </View>
                           </View>
 
-                          {/* Right Selection Radio */}
                           <View style={styles.cardRightAction}>
                             {isSelected ? (
                               <Ionicons name="checkmark-circle" size={22} color="#0F172A" />

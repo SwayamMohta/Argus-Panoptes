@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -20,9 +20,10 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { COLORS } from '../constants/colors';
 import { CATEGORIES_DATA } from '../constants/categoriesData';
-import { LOCALITIES, DEFAULT_LOCALITY } from '../constants/localities';
-import { MUNICIPAL_NOTICES } from '../constants/municipalNotices';
+import { useAuth } from '../context/AuthContext';
 import { useIssues } from '../context/IssuesContext';
+import { api } from '../lib/api';
+import { adaptNotice, adaptWard, categoryById } from '../lib/format';
 import { LocationHeader } from '../components/home/LocationHeader';
 import { LocalityPickerModal } from '../components/home/LocalityPickerModal';
 import { PersonalCivicActivityModal } from '../components/home/PersonalCivicActivityModal';
@@ -286,8 +287,16 @@ export const HomeScreen = ({ onNavigateTab }) => {
   // ===========================================================================
   // CIVIC INTELLIGENCE DASHBOARD STATE
   // ===========================================================================
-  const { issues } = useIssues();
-  const [selectedLocality, setSelectedLocality] = useState(DEFAULT_LOCALITY);
+  const { issues, loadIssues } = useIssues();
+  const { isLoggedIn } = useAuth();
+  const [selectedLocality, setSelectedLocality] = useState(null);
+  const [wards, setWards] = useState([]);
+  const [notices, setNotices] = useState([]);
+  const [categories, setCategories] = useState(CATEGORIES_DATA);
+  const [wardIssues, setWardIssues] = useState([]);
+  const [activityCount, setActivityCount] = useState(0);
+  const [dashboardError, setDashboardError] = useState('');
+  const [gpsNotice, setGpsNotice] = useState('');
   const [selectedIssue, setSelectedIssue] = useState(null);
   const [selectedCategoryForFeed, setSelectedCategoryForFeed] = useState(null);
   const [showLocalityPicker, setShowLocalityPicker] = useState(false);
@@ -295,54 +304,71 @@ export const HomeScreen = ({ onNavigateTab }) => {
   const [showPersonalActivity, setShowPersonalActivity] = useState(false);
   const [isReportingPhoto, setIsReportingPhoto] = useState(false);
 
-  // Active notices count for notification bell badge
-  const activeNoticesCount = useMemo(() => {
-    return MUNICIPAL_NOTICES.filter(
-      (n) => n.localityIds?.includes(selectedLocality?.id) || n.category === 'weather'
-    ).length;
-  }, [selectedLocality]);
+  useEffect(() => {
+    let active = true;
+    Promise.all([api.wards(), api.notices(), api.categories()])
+      .then(([wardRows, noticeRows, categoryRows]) => {
+        if (!active) return;
+        const adaptedWards = (wardRows || []).map(adaptWard);
+        setWards(adaptedWards);
+        setNotices((noticeRows || []).map(adaptNotice));
+        if (categoryRows?.length) setCategories(categoryRows);
+        if (adaptedWards.length) {
+          const preferred =
+            adaptedWards.find((ward) => ward.name.toUpperCase().includes('BANJARA')) ||
+            adaptedWards[0];
+          setSelectedLocality((current) => current || preferred);
+        }
+      })
+      .catch((error) => {
+        if (active) setDashboardError(error.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
-  // Single most relevant active notice for contextual advisory banner
-  const activeNotice = useMemo(() => {
-    return MUNICIPAL_NOTICES.find(
-      (n) => n.localityIds?.includes(selectedLocality?.id) || n.category === 'weather'
-    );
-  }, [selectedLocality]);
+  useEffect(() => {
+    if (!selectedLocality?.id) return undefined;
+    let active = true;
+    loadIssues({ areaId: selectedLocality.id, limit: 20, sortBy: 'new' })
+      .then((page) => {
+        if (active) setWardIssues(page.items);
+      })
+      .catch(() => {
+        if (active) setWardIssues([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [selectedLocality?.id, loadIssues]);
 
-  // Number of issues independently confirmed by citizen
-  const userConfirmedCount = useMemo(() => {
-    return issues.filter((iss) => !!iss.userConfirmed).length;
-  }, [issues]);
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setActivityCount(0);
+      return;
+    }
+    api
+      .activity('confirmed', 1, 1)
+      .then((page) => setActivityCount(page.total || 0))
+      .catch(() => setActivityCount(0));
+  }, [isLoggedIn]);
 
-  // Ward-filtered issues derived truthfully from IssuesContext
-  const wardIssues = useMemo(() => {
-    if (!selectedLocality) return issues;
-    const locName = (selectedLocality.name || '').toLowerCase();
-    const wardName = (selectedLocality.ward || '').toLowerCase();
-    const landmarks = selectedLocality.landmarks || [];
-
-    return issues.filter((iss) => {
-      if (iss.localityId && iss.localityId === selectedLocality.id) return true;
-      const loc = (iss.location || '').toLowerCase();
-      if (locName && loc.includes(locName)) return true;
-      if (wardName && loc.includes(wardName)) return true;
-      for (const lm of landmarks) {
-        if (lm && loc.includes(lm.toLowerCase())) return true;
-      }
-      return false;
-    });
-  }, [issues, selectedLocality]);
+  const activeNoticesCount = notices.length;
+  const activeNotice = notices[0] || null;
+  const userConfirmedCount = activityCount;
 
   // ---------------------------------------------------------------------------
   // View Issue Details (In-Place Subnavigation)
   // ---------------------------------------------------------------------------
   if (selectedIssue) {
-    const category = CATEGORIES_DATA.find((c) => c.id === selectedIssue.categoryId) || {
+    const category = categoryById(categories, selectedIssue.categoryId) || {
       id: selectedIssue.categoryId,
       name: 'Civic Issue',
       shortName: 'Civic',
       icon: 'alert-circle-outline',
       color: COLORS.brandGreen,
+      checkpoints: [],
     };
 
     return (
@@ -362,11 +388,14 @@ export const HomeScreen = ({ onNavigateTab }) => {
       <CategoryFeedScreen
         category={selectedCategoryForFeed}
         onBack={() => setSelectedCategoryForFeed(null)}
-        onSelectIssue={(issueId) => {
-          const iss = issues.find((i) => i.id === issueId);
-          if (iss) setSelectedIssue(iss);
+        onSelectIssue={(issue) => {
+          const found = typeof issue === 'string' ? issues.find((i) => i.id === issue) : issue;
+          if (found) setSelectedIssue(found);
         }}
-        onOpenCreateIssue={() => setIsReportingPhoto(true)}
+        onOpenCreateIssue={(category) => {
+          setSelectedCategoryForFeed(category || selectedCategoryForFeed);
+          setIsReportingPhoto(true);
+        }}
       />
     );
   }
@@ -377,15 +406,18 @@ export const HomeScreen = ({ onNavigateTab }) => {
   if (isReportingPhoto && capturedPhotoUri) {
     return (
       <CreateIssueScreen
-        category={CATEGORIES_DATA[2]}
+        category={
+          categoryById(categories, selectedCategoryForFeed?.id || 'roads') || CATEGORIES_DATA[2]
+        }
         initialImageUri={capturedPhotoUri}
         initialLocation={selectedLocality ? `${selectedLocality.name}, Hyderabad` : ''}
+        initialArea={selectedLocality}
         onBack={() => setIsReportingPhoto(false)}
-        onSuccess={(newIssueId) => {
+        onSuccess={(created) => {
           setIsReportingPhoto(false);
+          setSelectedCategoryForFeed(null);
           setCapturedPhotoUri(null);
-          const created = issues.find((i) => i.id === newIssueId);
-          if (created) setSelectedIssue(created);
+          if (created?.id) setSelectedIssue(created);
         }}
       />
     );
@@ -474,13 +506,19 @@ export const HomeScreen = ({ onNavigateTab }) => {
         <LocalityPickerModal
           visible={showLocalityPicker}
           currentLocality={selectedLocality}
-          onSelectLocality={(loc) => setSelectedLocality(loc)}
+          wards={wards}
+          onSelectLocality={(loc) => {
+            setSelectedLocality(loc);
+            setGpsNotice('');
+          }}
+          onGpsResult={(notice) => setGpsNotice(notice || '')}
           onClose={() => setShowLocalityPicker(false)}
         />
 
         {/* Municipal Notices & Circulars Modal */}
         <NoticesNotificationModal
           visible={showNoticesModal}
+          notices={notices}
           selectedLocality={selectedLocality}
           onClose={() => setShowNoticesModal(false)}
         />
@@ -509,6 +547,22 @@ export const HomeScreen = ({ onNavigateTab }) => {
         onOpenActivity={() => setShowPersonalActivity(true)}
         activityCount={userConfirmedCount}
       />
+
+      {!!dashboardError && (
+        <View style={styles.dashboardErrorBar}>
+          <Text style={styles.dashboardErrorText}>{dashboardError}</Text>
+        </View>
+      )}
+
+      {!!gpsNotice && (
+        <View style={styles.gpsNoticeBar}>
+          <Ionicons name="navigate-outline" size={15} color="#475569" />
+          <Text style={styles.gpsNoticeText}>{gpsNotice}</Text>
+          <TouchableOpacity onPress={() => setGpsNotice('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="close" size={15} color="#64748B" />
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Contextual Municipal Notice Advisory (Only rendered when a relevant notice exists) */}
       {activeNotice && (
@@ -736,19 +790,25 @@ export const HomeScreen = ({ onNavigateTab }) => {
           />
         )}
 
-        {/* A. Ward at a Glance */}
-        <WardAtAGlance
-          locality={selectedLocality}
-          issues={wardIssues}
-          onNavigateToMap={() => onNavigateTab && onNavigateTab('map')}
-        />
+        {selectedLocality && (
+          <>
+            {/* A. Ward at a Glance */}
+            <WardAtAGlance
+              locality={selectedLocality}
+              issues={wardIssues}
+              onNavigateToMap={() =>
+                onNavigateTab && onNavigateTab('map', undefined, { area: selectedLocality })
+              }
+            />
 
-        {/* B. Recently Resolved */}
-        <WardRecentlyResolved
-          locality={selectedLocality}
-          issues={wardIssues}
-          onSelectIssue={(iss) => setSelectedIssue(iss)}
-        />
+            {/* B. Recently Resolved */}
+            <WardRecentlyResolved
+              locality={selectedLocality}
+              issues={wardIssues}
+              onSelectIssue={(iss) => setSelectedIssue(iss)}
+            />
+          </>
+        )}
 
         {/* Clean white bottom area */}
         <View style={styles.bottomFill} />
@@ -762,13 +822,19 @@ export const HomeScreen = ({ onNavigateTab }) => {
       <LocalityPickerModal
         visible={showLocalityPicker}
         currentLocality={selectedLocality}
-        onSelectLocality={(loc) => setSelectedLocality(loc)}
+        wards={wards}
+        onSelectLocality={(loc) => {
+          setSelectedLocality(loc);
+          setGpsNotice('');
+        }}
+        onGpsResult={(notice) => setGpsNotice(notice || '')}
         onClose={() => setShowLocalityPicker(false)}
       />
 
       {/* Municipal Notices & Circulars Modal */}
       <NoticesNotificationModal
         visible={showNoticesModal}
+        notices={notices}
         selectedLocality={selectedLocality}
         onClose={() => setShowNoticesModal(false)}
       />
@@ -784,6 +850,38 @@ export const HomeScreen = ({ onNavigateTab }) => {
 };
 
 const styles = StyleSheet.create({
+  dashboardErrorBar: {
+    marginHorizontal: 20,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#FEF3F2',
+  },
+  dashboardErrorText: {
+    fontSize: 12,
+    color: '#B42318',
+    lineHeight: 17,
+  },
+  gpsNoticeBar: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginHorizontal: 20,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  gpsNoticeText: {
+    flex: 1,
+    fontSize: 11.5,
+    color: '#475569',
+    lineHeight: 16,
+  },
   container: {
     flex: 1,
     backgroundColor: COLORS.white,
