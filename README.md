@@ -185,8 +185,9 @@ firewall. The phone must use the PC LAN IP, never `localhost`.
 - Current build uses **email + password**; set **Confirm email OFF** so signup
   returns a session immediately.
 - Create buckets `evidence` (private) and `avatars` (public), 1 MiB, JPEG/PNG/WebP.
-- The current Supabase project already has the schema and reference data. For a
-  fresh project, apply migrations and seed:
+- The current Supabase project already has the schema, reference data, **155
+  wards**, **9 demo reports**, **12 comments**, and demo profiles. For a fresh
+  project, apply migrations and seed:
   ```bash
   cd backend
   DATABASE_URL="postgresql+psycopg://postgres:<password>@<host>:5432/postgres" \
@@ -329,6 +330,7 @@ key must never be in the app.
 |---|---|
 | `EXPO_PUBLIC_API_URL` warning / API unreachable | Use the PC LAN IP, bind uvicorn to `0.0.0.0`, allow TCP 8000, same Wi-Fi |
 | 500 from every DB-backed endpoint | `backend/.env` still has `<SUPABASE_DB_PASSWORD>` or uses the direct host; use the Session pooler URI with the real password. If the password is rejected, reset it in Supabase Dashboard → Project Settings → Database and copy the new Session pooler URI |
+| `ModuleNotFoundError: No module named 'psycopg2'` | `DATABASE_URL` lacks the `postgresql+psycopg://` prefix, or a second `DATABASE_URL` line overrides it. Keep exactly one line with `+psycopg` |
 | 401 from the API | Check Supabase URL/JWKS; sign in again |
 | `Request failed (422)` | The banner now shows the field/message; common cause is coordinates outside Hyderabad without a manual ward |
 | Map shows “Access denied” / old OSM tile | Restart Metro with `npx expo start -c`, clear Expo Go cache, confirm the tile proxy URL in the Metro log |

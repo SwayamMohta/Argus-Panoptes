@@ -30,7 +30,7 @@ Phase 9 frontend cut-over is implemented: Supabase email/password signup + login
 | On-device validation | todo | Expo Go against the LAN API |
 | Hyderabad assets | blocked on data | No verified Hyderabad asset dataset; the map is API-driven wards + real issues, no fabricated assets |
 | Supabase project | configured | `ndcmhjdssxnhjlovxyaj`: `evidence` (private) + `avatars` (public) buckets, 1 MiB cap, scoped policies |
-| Runtime database | **Supabase** | Schema `b4f6a2c81d37` + reference data applied; 155 wards/demo sync pending the DB password. Local Docker is pytest-only |
+| Runtime database | **Supabase** | Schema `b4f6a2c81d37`; 155 wards, 9 demo reports, 12 comments, 2 demo profiles, all reference data synced. Backend verified with local Postgres stopped. Local Docker is pytest-only |
 
 ### Platform and delivery constraints (confirmed 2026-11-08)
 
@@ -159,9 +159,9 @@ Device validation: the app bundles successfully, but it has **not been run in Ex
 | Tile proxy | **Verified:** `GET /api/v1/tiles/13/5880/3689.png` → 200, 26,235-byte PNG, `X-Tile-Provider: osm`, cache header; fallback/UA/502 tests pass |
 | Supabase schema | **Verified via MCP:** `b4f6a2c81d37`; 17 app tables created with RLS |
 | Supabase reference data | **Verified via MCP:** categories 8, checkpoints 32, notices 5, service standards 6 |
-| Supabase wards/demo | **Pending:** run `scripts/sync_supabase.py` with the Supabase direct/session connection string |
-| Backend runtime DB | `backend/.env` targets the Supabase **Session pooler** (`aws-0-ap-southeast-1.pooler.supabase.com:5432`). The password is still a placeholder; the direct `db.<ref>` host does not resolve (IPv6-only). Fill the password, sync, restart. Local backend is stopped |
-| Supabase connectivity | **Diagnosed:** direct host DNS fails; `aws-0` pooler recognizes `postgres.ndcmhjdssxnhjlovxyaj`, but the supplied password is rejected (`password authentication failed`). 500s are DB auth failures. Reset the DB password in Supabase and paste the new Session pooler URI |
+| Supabase wards/demo | **Verified:** `scripts/sync_supabase.py` imported areas 155, issues 9, comments 12, profiles 2 |
+| Backend runtime DB | **Verified:** `DATABASE_URL` uses the Supabase Session pooler with the working password; FastAPI reads Supabase; local Postgres stopped and `/health` still 200 |
+| Supabase connectivity | **Verified:** Session pooler `aws-0-ap-southeast-1.pooler.supabase.com:5432`; direct host is IPv6-only. The earlier `psycopg2` import error was a duplicate `DATABASE_URL` without `+psycopg`; fixed |
 | Frontend bundle | **Verified:** `npx expo export --platform web` → 561 modules, no errors |
 | On-device run | **Not performed** (Expo Go/device unavailable in this environment) |
 | Seed data | **Verified:** 9 Hyderabad reports, comments/votes/confirmations, idempotent rerun |
@@ -206,9 +206,9 @@ Top risks: no verified Hyderabad asset data; Nominatim User-Agent contact and pu
 
 ## 9. Next steps
 
-1. In `backend/.env`, replace `<SUPABASE_DB_PASSWORD>` in **both** `DATABASE_URL` and `SUPABASE_DATABASE_URL`. They already use the working Session pooler `aws-0-ap-southeast-1.pooler.supabase.com:5432` (user `postgres.ndcmhjdssxnhjlovxyaj`). The direct `db.<ref>` host is IPv6-only and fails DNS here. Then run `python -m scripts.sync_supabase` to import 155 wards + 9 demo reports. Local Docker is not required for runtime.
-2. Start FastAPI (`uvicorn app.main:app --host 0.0.0.0 --port 8000`) and verify `GET /api/v1/categories`, `/wards/boundaries`, and `/issues` against Supabase.
-3. Run the app in **Expo Go** on a physical Android device against the LAN API; confirm `frontend/.env` points at the PC LAN IP, then `npx expo start -c`. Validate password signup/login, manual ward selection, create-with-GPS, upload, feed, detail, votes/comments, profile/preferences, export, the area map, and the tile proxy.
+1. Backend is running against Supabase at `http://10.70.18.135:8000`; local Postgres is stopped. Do not start the backend against local Docker.
+2. Start the frontend: `cd frontend && npx expo start -c`; scan the QR in Expo Go. Validate password signup/login, manual ward selection, create-with-GPS, upload, feed, detail, votes/comments, profile/preferences, export, the area map, and the tile proxy.
+3. If `pytest` is needed, start the local test DB: `docker compose up -d db` (pytest uses `TEST_DATABASE_URL`; the runtime backend does not).
 4. Deploy to Vercel + Supabase once B-5 credentials are supplied; follow the deployment runbook, run the release checklist, and rehearse a real rollback.
 5. Obtain a verified Hyderabad asset dataset; assets/inspections remain deferred. KML is treated as open per the owner.
 6. Decide when to build the admin/official UI (APIs are ready).

@@ -70,10 +70,11 @@ Policies: authenticated insert only into `auth.uid()/…`; authenticated select 
 
 ## 4. Migrations and data sync
 
-**Current project status (2026-11-09):** the schema (`b4f6a2c81d37`) and reference
-data (8 categories, 32 checkpoints, 5 notices, 6 service standards) are already
-applied to Supabase. Wards and demo reports are seeded with
-`backend/scripts/sync_supabase.py` once the database password is supplied.
+**Current project status (2026-11-09):** the schema (`b4f6a2c81d37`), reference
+data (8 categories, 32 checkpoints, 5 notices, 6 service standards), **155
+wards**, **9 demo reports**, **12 comments**, and 2 demo profiles are already in
+Supabase. The backend runs against the Session pooler; local Postgres is only
+used by pytest.
 
 Run migrations from a trusted machine or CI, not from the Vercel build:
 
