@@ -1,10 +1,10 @@
 # Release Checklist
 
-> Status: **backend hardening and frontend wiring verified by build/local API; deployment and on-device validation are not.** Last updated 2026-11-08. Checked items have command output or inspected evidence. Do not mark a deployment or device item complete without a deployment id / device run.
+> Status: **backend hardening and frontend wiring verified by build/local API; deployment and on-device validation are not.** Last updated 2026-11-09. Checked items have command output or inspected evidence. Do not mark a deployment or device item complete without a deployment id / device run.
 
 ## 1. Backend quality gates
 
-- [x] `pytest -q` → **112 passed** (2026-11-08)
+- [x] `pytest -q` → **112 passed** (2026-11-09)
 - [x] `ruff check .` → clean
 - [x] `ruff format --check .` → clean
 - [x] `alembic check` → no new upgrade operations
