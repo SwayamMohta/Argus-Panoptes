@@ -42,9 +42,18 @@ RAW = (
 if not RAW:
     print(
         "Set SUPABASE_DATABASE_URL (or DATABASE_URL) in backend/.env to a Supabase\n"
-        "direct/session connection string, or pass it inline:\n"
-        '  SUPABASE_DATABASE_URL="postgresql://postgres:<password>@<host>:5432/postgres" \\\n'
+        "Session pooler connection string, or pass it inline:\n"
+        '  SUPABASE_DATABASE_URL="postgresql://postgres.<ref>:<password>'
+        '@aws-0-<region>.pooler.supabase.com:5432/postgres" \\\n'
         "    python -m scripts.sync_supabase",
+        file=sys.stderr,
+    )
+    raise SystemExit(1)
+
+if "<" in RAW or "[" in RAW:
+    print(
+        "The database URL still contains a placeholder. Replace <SUPABASE_DB_PASSWORD>\n"
+        "(or [YOUR-PASSWORD]) in backend/.env with the real Supabase database password.",
         file=sys.stderr,
     )
     raise SystemExit(1)

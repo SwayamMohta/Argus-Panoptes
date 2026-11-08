@@ -56,6 +56,10 @@ Policies: authenticated insert only into `auth.uid()/…`; authenticated select 
 ### Database
 
 - Use PostGIS in the `extensions` schema.
+- The **direct** `db.<ref>.supabase.co` host may be IPv6-only and can fail DNS on
+  IPv4 networks. Use the **Session pooler** (`aws-0-<region>.pooler.supabase.com:5432`,
+  user `postgres.<ref>`) for the local backend and seeding. Use the Transaction
+  pooler (`:6543`) only for Vercel runtime.
 - Run the Alembic migrations with a **direct/session connection (port 5432)**, not the transaction pooler.
 - Verify RLS after migrations:
   ```bash
@@ -89,9 +93,11 @@ with a direct/session connection:
 
 ```bash
 cd backend
-SUPABASE_DATABASE_URL="postgresql://postgres:<password>@<host>:5432/postgres" \
-  ./.venv/Scripts/python.exe -m scripts.sync_supabase
+./.venv/Scripts/python.exe -m scripts.sync_supabase
 ```
+
+The script reads `SUPABASE_DATABASE_URL` from the environment/`.env`; if it is
+empty it reuses `DATABASE_URL`.
 
 The script is idempotent and prints table counts. It refuses to run unless the
 schema is at `b4f6a2c81d37`.
@@ -126,7 +132,7 @@ Expo app.
 |---|---|
 | `ENVIRONMENT` | `production` |
 | `LOG_LEVEL` | `INFO` |
-| `DATABASE_URL` | Supavisor **transaction** URL, port **6543** (runtime); use a direct/session URL only for migrations/seeding |
+| `DATABASE_URL` | Supavisor **transaction** URL, port **6543** on Vercel; **Session pooler** port **5432** locally |
 | `SUPABASE_URL` | `https://<project-ref>.supabase.co` |
 | `SUPABASE_ANON_KEY` | public anon/publishable key |
 | `SUPABASE_SERVICE_ROLE_KEY` | **server-only**; optional if storage signing uses the caller token |

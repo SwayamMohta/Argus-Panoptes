@@ -104,16 +104,23 @@ cp .env.example .env
 Fill `backend/.env`:
 
 ```bash
-# Runtime DB: Supabase Session/Direct connection (port 5432).
+# Runtime DB: Supabase Session pooler (IPv4, port 5432).
 # Copy the exact URI from Supabase Dashboard -> Project Settings -> Database.
-DATABASE_URL=postgresql+psycopg://postgres:<password>@<host>:5432/postgres
+# For this project the pooler is:
+#   host: aws-0-ap-southeast-1.pooler.supabase.com
+#   user: postgres.ndcmhjdssxnhjlovxyaj
+DATABASE_URL=postgresql+psycopg://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
 
-# One-time seed/import URL (same direct/session URI).
-SUPABASE_DATABASE_URL=postgresql+psycopg://postgres:<password>@<host>:5432/postgres
+# Optional: one-time seed/import URL. Leave empty to reuse DATABASE_URL.
+SUPABASE_DATABASE_URL=
 
 SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_ANON_KEY=<public anon/publishable key>
 ```
+
+> The **direct** `db.<ref>.supabase.co` host is IPv6-only and does not resolve on
+> some networks. Use the **Session pooler** URI (port 5432) for the local backend
+> and seeding; use the **Transaction pooler** (port 6543) on Vercel.
 
 The schema is already applied to the current Supabase project. For a **fresh**
 project, apply it first:
@@ -124,12 +131,12 @@ DATABASE_URL="postgresql+psycopg://postgres:<password>@<host>:5432/postgres" \
   ./.venv/Scripts/alembic.exe upgrade head
 ```
 
-Sync the data (155 wards + reference data + 9 demo reports):
+Sync the data (155 wards + reference data + 9 demo reports). The script reads
+`DATABASE_URL` from `backend/.env` when `SUPABASE_DATABASE_URL` is empty:
 
 ```bash
 cd backend
-SUPABASE_DATABASE_URL="postgresql+psycopg://postgres:<password>@<host>:5432/postgres" \
-  ./.venv/Scripts/python.exe -m scripts.sync_supabase
+./.venv/Scripts/python.exe -m scripts.sync_supabase
 ```
 
 Start the API:
@@ -321,6 +328,7 @@ key must never be in the app.
 | Symptom | Fix |
 |---|---|
 | `EXPO_PUBLIC_API_URL` warning / API unreachable | Use the PC LAN IP, bind uvicorn to `0.0.0.0`, allow TCP 8000, same Wi-Fi |
+| 500 from every DB-backed endpoint | `backend/.env` still has `<SUPABASE_DB_PASSWORD>` or uses the direct host; use the Session pooler URI with the real password. If the password is rejected, reset it in Supabase Dashboard → Project Settings → Database and copy the new Session pooler URI |
 | 401 from the API | Check Supabase URL/JWKS; sign in again |
 | `Request failed (422)` | The banner now shows the field/message; common cause is coordinates outside Hyderabad without a manual ward |
 | Map shows “Access denied” / old OSM tile | Restart Metro with `npx expo start -c`, clear Expo Go cache, confirm the tile proxy URL in the Metro log |

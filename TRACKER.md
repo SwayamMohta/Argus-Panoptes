@@ -160,7 +160,8 @@ Device validation: the app bundles successfully, but it has **not been run in Ex
 | Supabase schema | **Verified via MCP:** `b4f6a2c81d37`; 17 app tables created with RLS |
 | Supabase reference data | **Verified via MCP:** categories 8, checkpoints 32, notices 5, service standards 6 |
 | Supabase wards/demo | **Pending:** run `scripts/sync_supabase.py` with the Supabase direct/session connection string |
-| Backend runtime DB | `backend/.env` now targets Supabase; local backend stopped. Fill `DATABASE_URL`/`SUPABASE_DATABASE_URL` and restart |
+| Backend runtime DB | `backend/.env` targets the Supabase **Session pooler** (`aws-0-ap-southeast-1.pooler.supabase.com:5432`). The password is still a placeholder; the direct `db.<ref>` host does not resolve (IPv6-only). Fill the password, sync, restart. Local backend is stopped |
+| Supabase connectivity | **Diagnosed:** direct host DNS fails; `aws-0` pooler recognizes `postgres.ndcmhjdssxnhjlovxyaj`, but the supplied password is rejected (`password authentication failed`). 500s are DB auth failures. Reset the DB password in Supabase and paste the new Session pooler URI |
 | Frontend bundle | **Verified:** `npx expo export --platform web` → 561 modules, no errors |
 | On-device run | **Not performed** (Expo Go/device unavailable in this environment) |
 | Seed data | **Verified:** 9 Hyderabad reports, comments/votes/confirmations, idempotent rerun |
@@ -205,7 +206,7 @@ Top risks: no verified Hyderabad asset data; Nominatim User-Agent contact and pu
 
 ## 9. Next steps
 
-1. Set the Supabase direct/session connection string in `backend/.env` (`DATABASE_URL` and `SUPABASE_DATABASE_URL`), then run `python -m scripts.sync_supabase`. This imports 155 wards and the 9 demo reports into Supabase. Local Docker is not required for runtime.
+1. In `backend/.env`, replace `<SUPABASE_DB_PASSWORD>` in **both** `DATABASE_URL` and `SUPABASE_DATABASE_URL`. They already use the working Session pooler `aws-0-ap-southeast-1.pooler.supabase.com:5432` (user `postgres.ndcmhjdssxnhjlovxyaj`). The direct `db.<ref>` host is IPv6-only and fails DNS here. Then run `python -m scripts.sync_supabase` to import 155 wards + 9 demo reports. Local Docker is not required for runtime.
 2. Start FastAPI (`uvicorn app.main:app --host 0.0.0.0 --port 8000`) and verify `GET /api/v1/categories`, `/wards/boundaries`, and `/issues` against Supabase.
 3. Run the app in **Expo Go** on a physical Android device against the LAN API; confirm `frontend/.env` points at the PC LAN IP, then `npx expo start -c`. Validate password signup/login, manual ward selection, create-with-GPS, upload, feed, detail, votes/comments, profile/preferences, export, the area map, and the tile proxy.
 4. Deploy to Vercel + Supabase once B-5 credentials are supplied; follow the deployment runbook, run the release checklist, and rehearse a real rollback.
