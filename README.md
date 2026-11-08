@@ -109,10 +109,10 @@ Fill `backend/.env`:
 # For this project the pooler is:
 #   host: aws-0-ap-southeast-1.pooler.supabase.com
 #   user: postgres.ndcmhjdssxnhjlovxyaj
-DATABASE_URL=postgresql+psycopg://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+SUPABASE_DATABASE_URL=postgresql+psycopg://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
 
-# Optional: one-time seed/import URL. Leave empty to reuse DATABASE_URL.
-SUPABASE_DATABASE_URL=
+
+
 
 SUPABASE_URL=https://<project-ref>.supabase.co
 SUPABASE_ANON_KEY=<public anon/publishable key>
